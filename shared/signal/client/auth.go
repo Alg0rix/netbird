@@ -26,14 +26,17 @@ type authCredentials struct {
 }
 
 // update replaces the auth token; an empty one means none, so Signal is called as by a legacy peer.
-func (a *authCredentials) update(token []byte) {
+// It reports whether a token was withdrawn.
+func (a *authCredentials) update(token []byte) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	had := a.token != nil
 	a.token = nil
 	if len(token) > 0 {
 		a.token = append([]byte(nil), token...)
 	}
 	a.proof = peerauth.Proof{}
+	return had && a.token == nil
 }
 
 // metadataPairs returns the token and a proof as gRPC metadata, or nil without an auth token.

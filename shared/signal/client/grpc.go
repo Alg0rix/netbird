@@ -99,6 +99,8 @@ type GrpcClient struct {
 	registrationTimeout time.Duration
 
 	auth authCredentials
+	// cancelStream closes the current stream, guarded by mux.
+	cancelStream context.CancelFunc
 }
 
 // Option configures optional GrpcClient behavior.
@@ -180,9 +182,25 @@ func (c *GrpcClient) Close() error {
 }
 
 // UpdateAuthToken sets the auth token presented on every Signal call from now on. An empty token
-// stops presenting one, as Management does when it issues no auth token.
+// stops presenting one, as Management does when it issues no auth token: the stream then
+// reconnects, since Signal refuses legacy calls from a peer whose stream registered authenticated.
 func (c *GrpcClient) UpdateAuthToken(token []byte) {
-	c.auth.update(token)
+	if !c.auth.update(token) {
+		return
+	}
+	c.mux.Lock()
+	cancel := c.cancelStream
+	c.mux.Unlock()
+	if cancel != nil {
+		log.Infof("auth token withdrawn, reconnecting the Signal stream")
+		cancel()
+	}
+}
+
+func (c *GrpcClient) setCancelStream(cancel context.CancelFunc) {
+	c.mux.Lock()
+	defer c.mux.Unlock()
+	c.cancelStream = cancel
 }
 
 // SetConnStateListener set the ConnStateNotifier
@@ -250,6 +268,8 @@ func (c *GrpcClient) Receive(ctx context.Context, msgHandler func(msg *proto.Mes
 		// todo once the key rotation logic has been implemented, consider changing to some other identifier (received from management)
 		streamCtx, cancelStream := context.WithCancel(ctx)
 		defer cancelStream()
+		c.setCancelStream(cancelStream)
+		defer c.setCancelStream(nil)
 		stream, err := c.connect(streamCtx, cancelStream, c.key.PublicKey().String())
 		if err != nil {
 			log.Warnf("disconnected from the Signal Exchange due to an error: %v", err)
