@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha256"
 	"net"
 	"os"
 	"testing"
@@ -833,9 +832,12 @@ func TestClient_AuthTokenWithoutAuthKeyFails(t *testing.T) {
 func TestClient_AuthenticatedClientTalksToLegacyClient(t *testing.T) {
 	ctx := context.Background()
 	serverListenAddr := "127.0.0.1:51101"
-	secret := sha256.Sum256([]byte("relay-secret"))
+	mgmtPub, mgmtKey, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	keys, err := peerauth.NewEd25519Keys([]ed25519.PublicKey{mgmtPub})
+	require.NoError(t, err)
 	serverCfg := newClientTestServerConfig(serverListenAddr)
-	serverCfg.PeerAuth = server.PeerAuthConfig{Keys: peerauth.TokenKeys{HMAC: secret[:]}}
+	serverCfg.PeerAuth = server.PeerAuthConfig{Keys: keys}
 	srv, err := server.NewServer(serverCfg)
 	require.NoError(t, err)
 	go func() {
@@ -857,7 +859,7 @@ func TestClient_AuthenticatedClientTalksToLegacyClient(t *testing.T) {
 	require.NoError(t, err)
 	alicePub, alicePriv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	token, err := peerauth.IssueHMACToken(secret[:], peerauth.Token{
+	token, err := peerauth.IssueEd25519Token(mgmtKey, peerauth.Token{
 		Expiry:  time.Now().Add(time.Hour),
 		WGPub:   aliceWG.PublicKey(),
 		AuthPub: alicePub,

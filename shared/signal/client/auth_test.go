@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha256"
 	"sync"
 	"testing"
 	"time"
@@ -176,9 +175,12 @@ func TestClient_PresentsAuthTokenOnStreamAndSend(t *testing.T) {
 // A real Signal verifier must accept the credentials the client presents on the stream and on
 // every Send, even when it refuses legacy peers.
 func TestClient_AuthenticatesToSignalVerifier(t *testing.T) {
-	secret := sha256.Sum256([]byte("relay-secret"))
+	mgmtPub, mgmtKey, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	keys, err := peerauth.NewEd25519Keys([]ed25519.PublicKey{mgmtPub})
+	require.NoError(t, err)
 	signal, err := server.NewServerWithPeerAuth(context.Background(), otel.Meter(""), server.PeerAuthConfig{
-		Keys:      peerauth.TokenKeys{HMAC: secret[:]},
+		Keys:      keys,
 		Hostnames: []string{"127.0.0.1"},
 		Required:  true,
 	})
@@ -190,7 +192,7 @@ func TestClient_AuthenticatesToSignalVerifier(t *testing.T) {
 	require.NoError(t, err)
 	authPub, authKey, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	token, err := peerauth.IssueHMACToken(secret[:], peerauth.Token{
+	token, err := peerauth.IssueEd25519Token(mgmtKey, peerauth.Token{
 		Expiry:  time.Now().Add(time.Hour),
 		WGPub:   key.PublicKey(),
 		AuthPub: authPub,
@@ -234,4 +236,61 @@ func TestClient_AuthenticatesToSignalVerifier(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the message never came back through the authenticated stream")
 	}
+}
+
+// Signal refuses legacy calls from a peer whose stream registered authenticated, so when Management
+// stops issuing the token (a rolling change of its signing key) the client must re-register its
+// stream as legacy, or every Send is refused until the stream happens to reconnect.
+func TestClient_WithdrawnTokenReRegistersStream(t *testing.T) {
+	mgmtPub, mgmtKey, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	keys, err := peerauth.NewEd25519Keys([]ed25519.PublicKey{mgmtPub})
+	require.NoError(t, err)
+	signal, err := server.NewServerWithPeerAuth(context.Background(), otel.Meter(""), server.PeerAuthConfig{
+		Keys:      keys,
+		Hostnames: []string{"127.0.0.1"},
+	})
+	require.NoError(t, err)
+	t.Cleanup(signal.Stop)
+	addr := serveTestSignalExchange(t, signal)
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err)
+	authPub, authKey, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	token, err := peerauth.IssueEd25519Token(mgmtKey, peerauth.Token{
+		Expiry:  time.Now().Add(time.Hour),
+		WGPub:   key.PublicKey(),
+		AuthPub: authPub,
+	})
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	client, err := NewClient(ctx, addr, key, false, WithAuthKey(authKey))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close() })
+	client.UpdateAuthToken(token)
+
+	receiveDone := make(chan struct{})
+	go func() {
+		defer close(receiveDone)
+		_ = client.Receive(ctx, func(*sigProto.Message) error { return nil })
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-receiveDone
+	})
+
+	waitCtx, waitCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer waitCancel()
+	client.WaitStreamConnected(waitCtx)
+	require.True(t, client.StreamConnected(), "the authenticated stream must register")
+
+	client.UpdateAuthToken(nil)
+
+	self := key.PublicKey().String()
+	msg := &sigProto.Message{Key: self, RemoteKey: self, Body: &sigProto.Body{Type: sigProto.Body_HEARTBEAT}}
+	require.Eventually(t, func() bool { return client.Send(msg) == nil }, 10*time.Second, 100*time.Millisecond,
+		"legacy sends must be accepted once the stream re-registered without the token")
 }
