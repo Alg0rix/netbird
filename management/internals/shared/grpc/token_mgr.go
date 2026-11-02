@@ -6,7 +6,6 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -72,10 +71,10 @@ func WithPeerAuth(cfg nbconfig.PeerAuth) SecretsManagerOption {
 	return func(m *TimeBasedAuthSecretsManager) { m.peerAuthCfg = cfg }
 }
 
-// peerAuthIssuer signs the tokens bound to the peer keys with the hashed relay secret.
+// peerAuthIssuer signs the tokens bound to the peer keys with Management's Ed25519 key.
 type peerAuthIssuer struct {
-	secret []byte
-	ttl    time.Duration
+	signingKey ed25519.PrivateKey
+	ttl        time.Duration
 }
 
 func NewTimeBasedAuthSecretsManager(updateManager network_map.PeersUpdateManager, turnCfg *nbconfig.TURNConfig, relayCfg *nbconfig.Relay, settingsManager settings.Manager, groupsManager groups.Manager, opts ...SecretsManagerOption) (*TimeBasedAuthSecretsManager, error) {
@@ -355,18 +354,21 @@ func (m *TimeBasedAuthSecretsManager) authTokenOrLog(ctx context.Context, peerID
 }
 
 func newPeerAuthIssuer(cfg nbconfig.PeerAuth, relayCfg *nbconfig.Relay) (*peerAuthIssuer, error) {
-	if !cfg.Enabled {
-		return nil, nil //nolint:nilnil // disabled: peers keep the legacy relay token
+	if cfg.SigningKeyFile == "" {
+		return nil, nil //nolint:nilnil // no signing key: peers keep the legacy relay token
 	}
-	if relayCfg == nil || relayCfg.Secret == "" {
-		return nil, errors.New("peer auth needs the relay secret to sign tokens")
+	signingKey, err := peerauth.LoadSigningKeyFile(cfg.SigningKeyFile)
+	if err != nil {
+		return nil, err
 	}
-	ttl := relayCfg.CredentialsTTL.Duration
-	if ttl <= 0 {
-		ttl = defaultDuration
+	pub := signingKey.Public().(ed25519.PublicKey)
+	log.Infof("peer auth signing key id %d, public key %s", peerauth.Ed25519KeyID(pub), base64.StdEncoding.EncodeToString(pub))
+
+	ttl := defaultDuration
+	if relayCfg != nil && relayCfg.CredentialsTTL.Duration > 0 {
+		ttl = relayCfg.CredentialsTTL.Duration
 	}
-	secret := sha256.Sum256([]byte(relayCfg.Secret))
-	return &peerAuthIssuer{secret: secret[:], ttl: ttl}, nil
+	return &peerAuthIssuer{signingKey: signingKey, ttl: ttl}, nil
 }
 
 func (i *peerAuthIssuer) issue(keys PeerAuthKeys) ([]byte, error) {
@@ -381,7 +383,7 @@ func (i *peerAuthIssuer) issue(keys PeerAuthKeys) ([]byte, error) {
 	if len(authPub) != ed25519.PublicKeySize {
 		return nil, fmt.Errorf("auth key size %d", len(authPub))
 	}
-	return peerauth.IssueHMACToken(i.secret, peerauth.Token{
+	return peerauth.IssueEd25519Token(i.signingKey, peerauth.Token{
 		Expiry:  time.Now().Add(i.ttl),
 		WGPub:   wgPub,
 		AuthPub: authPub,
