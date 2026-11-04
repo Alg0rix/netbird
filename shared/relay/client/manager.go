@@ -9,6 +9,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	rp "github.com/netbirdio/netbird/shared/management/relaypolicy"
 	relayAuth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
 )
 
@@ -30,7 +31,9 @@ type RelayTrack struct {
 	// ready is closed once the dial started by openConnVia finishes (relayClient
 	// or err is set). Callers reusing a track wait on this instead of the track
 	// lock, so the dial never runs under rt.Lock.
-	ready chan struct{}
+	ready      chan struct{}
+	refs       int
+	dialCancel context.CancelFunc
 }
 
 func NewRelayTrack() *RelayTrack {
@@ -72,11 +75,19 @@ func WithNetEvents(events NetEvents) ManagerOption {
 // relay servers will be closed if there is no active connection. Periodically the manager will check if there is any
 // unused relay connection and close it.
 type Manager struct {
-	ctx          context.Context
-	peerID       string
-	running      bool
-	tokenStore   *relayAuth.TokenStore
-	serverPicker *ServerPicker
+	ctx           context.Context
+	peerID        string
+	running       bool
+	lifecycleMu   sync.Mutex
+	homeUpdates   chan struct{}
+	homePolicy    *rp.ResolvedRelayPolicy
+	homeCancel    context.CancelFunc
+	aliases       map[rp.RelayEndpoint]rp.RelayEndpoint
+	approved      map[rp.RelayEndpoint]rp.RelayCatalogEntry
+	pickerLeases  map[*Client][]*Registration
+	pickerLeaseMu sync.Mutex
+	tokenStore    *relayAuth.TokenStore
+	serverPicker  *ServerPicker
 
 	relayClient *Client
 	// the guard logic can overwrite the relayClient variable, this mutex protect the usage of the variable
@@ -85,6 +96,9 @@ type Manager struct {
 
 	relayClients      map[string]*RelayTrack
 	relayClientsMutex sync.RWMutex
+	stopped           bool
+	catalogGeneration uint64
+	catalogPublished  bool
 
 	onReconnectedListenerFn func()
 	listenerLock            sync.Mutex
@@ -109,6 +123,10 @@ func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uin
 
 	m := &Manager{
 		ctx:               ctx,
+		homeUpdates:       make(chan struct{}, 1),
+		aliases:           make(map[rp.RelayEndpoint]rp.RelayEndpoint),
+		approved:          make(map[rp.RelayEndpoint]rp.RelayCatalogEntry),
+		pickerLeases:      make(map[*Client][]*Registration),
 		peerID:            peerID,
 		tokenStore:        tokenStore,
 		mtu:               mtu,
@@ -128,7 +146,9 @@ func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uin
 		opt(m)
 	}
 	m.serverPicker.NetEvents = m.netEvents
-	m.serverPicker.ServerURLs.Store(serverURLs)
+	m.serverPicker.ServerURLs.Store(append([]string(nil), serverURLs...))
+	m.serverPicker.acquire = m.acquirePickerClient
+	m.serverPicker.release = m.releasePickerClient
 	m.reconnectGuard = NewGuard(m.serverPicker, m.maxBackoffInterval, m.netEvents)
 	return m
 }
@@ -138,23 +158,25 @@ func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uin
 // Additionally, it starts a cleanup loop to remove unused relay connections.
 // The manager will automatically reconnect to the relay server in case of disconnection.
 func (m *Manager) Serve() error {
+	m.lifecycleMu.Lock()
 	if m.running {
+		m.lifecycleMu.Unlock()
 		return fmt.Errorf("manager already serving")
 	}
 	m.running = true
-	log.Debugf("starting relay client manager with %v relay servers", m.serverPicker.ServerURLs.Load())
-
-	client, err := m.serverPicker.PickServer(m.ctx)
-	if err != nil {
-		// record the initial failure so status shows the real reason before
-		// the guard's first retry tick
-		m.reconnectGuard.setLastError(err)
-		go m.reconnectGuard.StartReconnectTrys(m.ctx, nil)
-	} else {
+	ctx, cancel := context.WithCancel(m.ctx)
+	m.homeCancel = cancel
+	m.lifecycleMu.Unlock()
+	client, err := m.pickHome(ctx)
+	m.lifecycleMu.Lock()
+	if err == nil && ctx.Err() == nil {
 		m.storeClient(client)
+	} else if client != nil {
+		m.releasePickerClient(client)
 	}
-
-	go m.listenGuardEvent(m.ctx)
+	m.lifecycleMu.Unlock()
+	m.reconnectGuard.setLastError(err)
+	go m.homeLoop()
 	go m.startCleanupLoop()
 	return err
 }
@@ -166,32 +188,7 @@ func (m *Manager) Serve() error {
 // serverIP, when valid and serverAddress is foreign, is used as a dial target if the FQDN-based dial fails.
 // Ignored for the local home-server path. TLS verification still uses the FQDN via SNI.
 func (m *Manager) OpenConn(ctx context.Context, serverAddress, peerKey string, serverIP netip.Addr) (*Conn, error) {
-	m.relayClientMu.RLock()
-	homeClient := m.relayClient
-	m.relayClientMu.RUnlock()
-
-	if homeClient == nil {
-		return nil, ErrRelayClientNotConnected
-	}
-
-	foreign, err := m.isForeignServer(homeClient, serverAddress)
-	if err != nil {
-		return nil, err
-	}
-
-	var netConn *Conn
-	if !foreign {
-		log.Debugf("open peer connection via permanent server: %s", peerKey)
-		netConn, err = homeClient.OpenConn(ctx, peerKey)
-	} else {
-		log.Debugf("open peer connection via foreign server: %s", serverAddress)
-		netConn, err = m.openConnVia(ctx, serverAddress, peerKey, serverIP)
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	return netConn, err
+	return m.openConnVia(ctx, serverAddress, peerKey, serverIP)
 }
 
 // Ready returns true if the home Relay client is connected to the relay server.
@@ -228,7 +225,7 @@ func (m *Manager) RelayInstanceAddress() (string, netip.Addr, error) {
 
 // ServerURLs returns the addresses of the relay servers.
 func (m *Manager) ServerURLs() []string {
-	return m.serverPicker.ServerURLs.Load().([]string)
+	return append([]string(nil), m.serverPicker.ServerURLs.Load().([]string)...)
 }
 
 // RelayConnectError returns the error from the most recent failed home relay
@@ -273,7 +270,7 @@ func (m *Manager) RelayStates() []RelayConnState {
 		rt.RLock()
 		rc := rt.relayClient
 		rt.RUnlock()
-		if rc != nil {
+		if rc != nil && rc != home {
 			states = append(states, relayConnState(rc))
 		}
 	}
@@ -289,7 +286,7 @@ func (m *Manager) HasRelayAddress() bool {
 
 func (m *Manager) UpdateServerURLs(serverURLs []string) {
 	log.Infof("update relay server URLs: %v", serverURLs)
-	m.serverPicker.ServerURLs.Store(serverURLs)
+	m.serverPicker.ServerURLs.Store(append([]string(nil), serverURLs...))
 }
 
 // UpdateToken updates the token in the token store.
@@ -298,52 +295,12 @@ func (m *Manager) UpdateToken(token *relayAuth.Token) error {
 }
 
 func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string, serverIP netip.Addr) (*Conn, error) {
-	// check if already has a connection to the desired relay server
-	m.relayClientsMutex.RLock()
-	rt, ok := m.relayClients[serverAddress]
-	m.relayClientsMutex.RUnlock()
-	if ok {
-		return m.openConnOnTrack(ctx, rt, peerKey)
-	}
-
-	// if not, establish a new connection but check it again (because changed the lock type) before starting the
-	// connection
-	m.relayClientsMutex.Lock()
-	rt, ok = m.relayClients[serverAddress]
-	if ok {
-		m.relayClientsMutex.Unlock()
-		return m.openConnOnTrack(ctx, rt, peerKey)
-	}
-
-	// Publish the track and release the map lock BEFORE dialing, so the dial does
-	// not run under rt.Lock (which would block RelayStates and the cleanup loop
-	// for the full dial). Concurrent callers find this track and wait on rt.ready.
-	rt = NewRelayTrack()
-	m.relayClients[serverAddress] = rt
-	m.relayClientsMutex.Unlock()
-
-	relayClient := NewClientWithServerIP(serverAddress, serverIP, m.tokenStore, m.peerID, m.mtu)
-	relayClient.SetTransportFallback(m.transportFallback)
-	relayClient.netEvents = m.netEvents
-	err := relayClient.Connect(m.ctx)
+	reg, err := m.acquire(ctx, serverAddress, serverIP, nil)
 	if err != nil {
-		rt.Lock()
-		rt.err = err
-		rt.Unlock()
-		close(rt.ready)
-		m.relayClientsMutex.Lock()
-		delete(m.relayClients, serverAddress)
-		m.relayClientsMutex.Unlock()
 		return nil, err
 	}
-	// if connection closed then delete the relay client from the list
-	relayClient.SetOnDisconnectListener(m.onServerDisconnected)
-	rt.Lock()
-	rt.relayClient = relayClient
-	rt.Unlock()
-	close(rt.ready)
-
-	return relayClient.OpenConn(ctx, peerKey)
+	defer reg.Release()
+	return reg.OpenConn(ctx, peerKey)
 }
 
 // openConnOnTrack opens a peer connection through an existing relay track,
@@ -358,14 +315,15 @@ func (m *Manager) openConnOnTrack(ctx context.Context, rt *RelayTrack, peerKey s
 	}
 
 	rt.RLock()
-	defer rt.RUnlock()
-	if rt.err != nil {
-		return nil, rt.err
+	client, err := rt.relayClient, rt.err
+	rt.RUnlock()
+	if err != nil {
+		return nil, err
 	}
-	if rt.relayClient == nil {
+	if client == nil {
 		return nil, ErrRelayClientNotConnected
 	}
-	return rt.relayClient.OpenConn(ctx, peerKey)
+	return client.OpenConn(ctx, peerKey)
 }
 
 func (m *Manager) onServerConnected() {
@@ -383,17 +341,12 @@ func (m *Manager) onServerConnected() {
 // from the cache so the next OpenConn builds a fresh one instead of reusing a
 // closed client.
 func (m *Manager) onServerDisconnected(serverAddress string) {
-	m.relayClientMu.Lock()
+	m.relayClientMu.RLock()
 	isHome := m.relayClient != nil && serverAddress == m.relayClient.connectionURL
+	m.relayClientMu.RUnlock()
+	m.evictForeignRelay(serverAddress)
 	if isHome {
-		go func(client *Client) {
-			m.reconnectGuard.StartReconnectTrys(m.ctx, client)
-		}(m.relayClient)
-	}
-	m.relayClientMu.Unlock()
-
-	if !isHome {
-		m.evictForeignRelay(serverAddress)
+		m.wakeHome()
 	}
 }
 
@@ -438,10 +391,12 @@ func (m *Manager) listenGuardEvent(ctx context.Context) {
 
 func (m *Manager) storeClient(client *Client) {
 	m.relayClientMu.Lock()
-	defer m.relayClientMu.Unlock()
-
+	old := m.relayClient
 	m.relayClient = client
-	m.relayClient.SetOnDisconnectListener(m.onServerDisconnected)
+	m.relayClientMu.Unlock()
+	if old != nil {
+		m.releasePickerClient(old)
+	}
 }
 
 func (m *Manager) isForeignServer(homeClient *Client, address string) (bool, error) {
@@ -466,41 +421,23 @@ func (m *Manager) startCleanupLoop() {
 }
 
 func (m *Manager) cleanUpUnusedRelays() {
+	var closing []*Client
 	m.relayClientsMutex.Lock()
-	defer m.relayClientsMutex.Unlock()
-
 	for addr, rt := range m.relayClients {
 		rt.Lock()
-		// if the connection failed to the server the relay client will be nil
-		// but the instance will be kept in the relayClients until the next locking
-		if rt.err != nil {
-			rt.Unlock()
-			continue
+		c := rt.relayClient
+		if c != nil && rt.refs == 0 && time.Since(rt.created) > m.keepUnusedServerTime && !c.HasConns() {
+			delete(m.relayClients, addr)
+			closing = append(closing, c)
 		}
-
-		// dial still in progress (openConnVia publishes the track before Connect
-		// completes and no longer holds rt.Lock during it), nothing to clean up.
-		if rt.relayClient == nil {
-			rt.Unlock()
-			continue
-		}
-
-		if time.Since(rt.created) <= m.keepUnusedServerTime {
-			rt.Unlock()
-			continue
-		}
-
-		if rt.relayClient.HasConns() {
-			rt.Unlock()
-			continue
-		}
-		rt.relayClient.SetOnDisconnectListener(nil)
-		go func() {
-			_ = rt.relayClient.Close()
-		}()
-		log.Debugf("clean up unused relay server connection: %s", addr)
-		delete(m.relayClients, addr)
 		rt.Unlock()
+	}
+	m.relayClientsMutex.Unlock()
+	for _, c := range closing {
+		c.SetOnDisconnectListener(nil)
+		if err := c.Close(); err != nil {
+			log.Debugf("close unused relay: %v", err)
+		}
 	}
 }
 

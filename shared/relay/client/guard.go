@@ -45,7 +45,8 @@ type Guard struct {
 
 	// lastErr is the error from the most recent failed reconnect attempt,
 	// surfaced as the home relay status while disconnected.
-	lastErr atomic.Pointer[error]
+	lastErr      atomic.Pointer[error]
+	reconnecting atomic.Bool
 }
 
 // NewGuard creates a new guard for the relay client. A non-positive
@@ -84,6 +85,10 @@ func (g *Guard) LastError() error {
 // - relayClient: The relay client instance that was disconnected.
 // todo prevent multiple reconnection instances. In the current usage it should not happen, but it is better to prevent
 func (g *Guard) StartReconnectTrys(ctx context.Context, relayClient *Client) {
+	if !g.reconnecting.CompareAndSwap(false, true) {
+		return
+	}
+	defer g.reconnecting.Store(false)
 	// try to reconnect to the same server
 	if ok := g.tryToQuickReconnect(ctx, relayClient); ok {
 		g.notifyReconnected()
@@ -126,7 +131,7 @@ func (g *Guard) setLastError(err error) {
 }
 
 func (g *Guard) tryToQuickReconnect(parentCtx context.Context, rc *Client) bool {
-	if rc == nil {
+	if rc == nil || g.serverPicker.acquire != nil {
 		return false
 	}
 
@@ -169,13 +174,19 @@ func (g *Guard) retry(ctx context.Context) error {
 	// prevent to work with a deprecated Relay client instance
 	g.drainRelayClientChan()
 
-	g.OnNewRelayClient <- relayClient
+	select {
+	case g.OnNewRelayClient <- relayClient:
+	case <-ctx.Done():
+		g.serverPicker.releaseClient(relayClient)
+		return ctx.Err()
+	}
 	return nil
 }
 
 func (g *Guard) drainRelayClientChan() {
 	select {
-	case <-g.OnNewRelayClient:
+	case old := <-g.OnNewRelayClient:
+		g.serverPicker.releaseClient(old)
 	default:
 	}
 }

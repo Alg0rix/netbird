@@ -75,6 +75,7 @@ message Body {
   // fallback dial target when DNS resolution of relayServerAddress fails.
   // SNI/TLS verification still uses relayServerAddress.
   optional bytes relayServerIP = 11;
+  RelayPolicyAttempt relayPolicyAttempt = 12;
 }
 
 // Mode indicates a connection mode
@@ -86,4 +87,17 @@ message RosenpassConfig {
   bytes rosenpassPubKey = 1;
   // rosenpassServerAddr is an IP:port of the rosenpass service
   string rosenpassServerAddr = 2;
+}
+
+// RelayPolicyAttempt fences native relay negotiation against the effective policy.
+message RelayPolicyAttempt {
+  string digest = 1;
+  uint64 catalogGeneration = 2;
+  uint64 reselectionGeneration = 3;
+  bytes nonce = 4;
+  uint64 sequence = 5;
+  string relayId = 6;
+  string instance = 7;
+  uint32 phase = 8;
+  bytes responderNonce = 9;
 }

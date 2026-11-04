@@ -47,14 +47,15 @@ type Credential struct {
 
 // CredentialPayload bundles the fields of a signal Body for MarshalCredential.
 type CredentialPayload struct {
-	Type            proto.Body_Type
-	WgListenPort    int
-	Credential      *Credential
-	RosenpassPubKey []byte
-	RosenpassAddr   string
-	RelaySrvAddress string
-	RelaySrvIP      netip.Addr
-	SessionID       []byte
+	Type               proto.Body_Type
+	WgListenPort       int
+	Credential         *Credential
+	RosenpassPubKey    []byte
+	RosenpassAddr      string
+	RelaySrvAddress    string
+	RelaySrvIP         netip.Addr
+	SessionID          []byte
+	RelayPolicyAttempt *proto.RelayPolicyAttempt
 }
 
 // UnMarshalCredential parses the credentials from the message and returns a Credential instance
@@ -81,7 +82,8 @@ func MarshalCredential(myKey wgtypes.Key, remoteKey string, p CredentialPayload)
 			RosenpassPubKey:     p.RosenpassPubKey,
 			RosenpassServerAddr: p.RosenpassAddr,
 		},
-		SessionId: p.SessionID,
+		SessionId:          p.SessionID,
+		RelayPolicyAttempt: p.RelayPolicyAttempt,
 	}
 	if p.RelaySrvAddress != "" {
 		body.RelayServerAddress = &p.RelaySrvAddress

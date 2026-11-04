@@ -31,90 +31,84 @@ type ServerPicker struct {
 	ConnectionTimeout time.Duration
 	TransportFallback *transportFallback
 	NetEvents         NetEvents
+	acquire           func(context.Context, string) (*Client, error)
+	release           func(*Client)
 }
 
+// PickServer races the configured servers within a bounded attempt.
 func (sp *ServerPicker) PickServer(parentCtx context.Context) (*Client, error) {
+	return sp.pickURLs(parentCtx, sp.ServerURLs.Load().([]string))
+}
+
+func (sp *ServerPicker) pickURLs(parentCtx context.Context, urls []string) (*Client, error) {
 	ctx, cancel := context.WithTimeout(parentCtx, sp.ConnectionTimeout)
 	defer cancel()
-
-	totalServers := len(sp.ServerURLs.Load().([]string))
-
-	connResultChan := make(chan connResult, totalServers)
-	successChan := make(chan connResult, 1)
-	errChan := make(chan error, 1)
-	concurrentLimiter := make(chan struct{}, maxConcurrentServers)
-
-	log.Debugf("pick server from list: %v", sp.ServerURLs.Load().([]string))
-	for _, url := range sp.ServerURLs.Load().([]string) {
-		// todo check if we have a successful connection so we do not need to connect to other servers
-		concurrentLimiter <- struct{}{}
-		go func(url string) {
-			defer func() {
-				<-concurrentLimiter
-			}()
-			sp.startConnection(parentCtx, connResultChan, url)
-		}(url)
-	}
-
-	go sp.processConnResults(connResultChan, successChan, errChan)
-
-	select {
-	case cr, ok := <-successChan:
-		if !ok {
-			return nil, <-errChan
-		}
-		instanceURL, serverIP, err := cr.RelayClient.serverInstanceAddress()
-		if err != nil {
-			log.Infof("chosen home Relay server: %s, instance address unavailable: %v", cr.Url, err)
-			return cr.RelayClient, nil
-		}
-		log.Infof("chosen home Relay server: %s, instance URL: %s, server IP: %s", cr.Url, instanceURL, serverIP)
-		return cr.RelayClient, nil
-	case <-ctx.Done():
-		return nil, fmt.Errorf("connect to relay server: %w", ctx.Err())
-	}
-}
-
-func (sp *ServerPicker) startConnection(ctx context.Context, resultChan chan connResult, url string) {
-	log.Infof("try to connecting to relay server: %s", url)
-	relayClient := NewClient(url, sp.TokenStore, sp.PeerID, sp.MTU)
-	relayClient.SetTransportFallback(sp.TransportFallback)
-	relayClient.netEvents = sp.NetEvents
-	err := relayClient.Connect(ctx)
-	resultChan <- connResult{
-		RelayClient: relayClient,
-		Url:         url,
-		Err:         err,
-	}
-}
-
-func (sp *ServerPicker) processConnResults(resultChan chan connResult, successChan chan connResult, errChan chan error) {
-	var hasSuccess bool
-	var errs []error
-	for numOfResults := 0; numOfResults < cap(resultChan); numOfResults++ {
-		cr := <-resultChan
-		if cr.Err != nil {
-			log.Tracef("failed to connect to Relay server: %s: %v", cr.Url, cr.Err)
-			errs = append(errs, cr.Err)
-			continue
-		}
-		log.Infof("connected to Relay server: %s", cr.Url)
-
-		if hasSuccess {
-			log.Infof("closing unnecessary Relay connection to: %s", cr.Url)
-			if err := cr.RelayClient.Close(); err != nil {
-				log.Errorf("failed to close connection to %s: %v", cr.Url, err)
+	results := make(chan connResult, len(urls))
+	limiter := make(chan struct{}, maxConcurrentServers)
+	for _, address := range urls {
+		go func(address string) {
+			select {
+			case limiter <- struct{}{}:
+			case <-ctx.Done():
+				results <- connResult{Err: ctx.Err()}
+				return
 			}
-			continue
+			defer func() { <-limiter }()
+			var c *Client
+			var err error
+			if sp.acquire != nil {
+				c, err = sp.acquire(ctx, address)
+			} else {
+				c = NewClient(address, sp.TokenStore, sp.PeerID, sp.MTU)
+				c.SetTransportFallback(sp.TransportFallback)
+				c.netEvents = sp.NetEvents
+				err = c.connectWithLifetime(ctx, parentCtx)
+			}
+			results <- connResult{RelayClient: c, Url: address, Err: err}
+		}(address)
+	}
+	var errs []error
+	remaining := len(urls)
+	for remaining > 0 {
+		select {
+		case result := <-results:
+			remaining--
+			if result.Err != nil {
+				errs = append(errs, result.Err)
+				if result.RelayClient != nil {
+					sp.releaseClient(result.RelayClient)
+				}
+				continue
+			}
+			// Drain late successes after cancelling the race; pooled losers release
+			// only their picker ownership, preserving pair and foreign registrations.
+			go sp.drainResults(results, remaining)
+			return result.RelayClient, nil
+		case <-ctx.Done():
+			go sp.drainResults(results, remaining)
+			return nil, fmt.Errorf("connect to relay server: %w", ctx.Err())
 		}
+	}
+	return nil, pickErr(errs)
+}
 
-		hasSuccess = true
-		successChan <- cr
+func (sp *ServerPicker) drainResults(results <-chan connResult, remaining int) {
+	for i := 0; i < remaining; i++ {
+		result := <-results
+		if result.RelayClient != nil {
+			sp.releaseClient(result.RelayClient)
+		}
 	}
-	if !hasSuccess {
-		errChan <- pickErr(errs)
+}
+
+func (sp *ServerPicker) releaseClient(c *Client) {
+	if sp.release != nil {
+		sp.release(c)
+		return
 	}
-	close(successChan)
+	if err := c.Close(); err != nil {
+		log.Debugf("close unused relay connection: %v", err)
+	}
 }
 
 // pickErr combines per-server connection failures into a single error.

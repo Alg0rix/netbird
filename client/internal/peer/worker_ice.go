@@ -148,7 +148,7 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 	}
 
 	var preferredCandidateTypes []ice.CandidateType
-	if w.hasRelayOnLocally && remoteOfferAnswer.RelaySrvAddress != "" {
+	if w.config.RelayPolicy != nil || (w.hasRelayOnLocally && remoteOfferAnswer.RelaySrvAddress != "") {
 		preferredCandidateTypes = icemaker.CandidateTypesP2P()
 	} else {
 		preferredCandidateTypes = icemaker.CandidateTypes()
@@ -179,6 +179,9 @@ func (w *WorkerICE) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
 
 // OnRemoteCandidate Handles ICE connection Candidate provided by the remote peer.
 func (w *WorkerICE) OnRemoteCandidate(candidate ice.Candidate, haRoutes route.HAMap) {
+	if w.config.RelayPolicy != nil && candidate.Type() == ice.CandidateTypeRelay {
+		return
+	}
 	w.muxAgent.Lock()
 	defer w.muxAgent.Unlock()
 	w.log.Debugf("OnRemoteCandidate from peer %s -> %s", w.config.Key, candidate.String())

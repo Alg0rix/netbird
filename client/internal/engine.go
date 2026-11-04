@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"reflect"
 	"runtime"
 	"slices"
 	"sort"
@@ -71,6 +72,7 @@ import (
 	sharedgrpc "github.com/netbirdio/netbird/shared/management/grpc"
 	nbnetworkmap "github.com/netbirdio/netbird/shared/management/networkmap"
 	mgmProto "github.com/netbirdio/netbird/shared/management/proto"
+	rp "github.com/netbirdio/netbird/shared/management/relaypolicy"
 	types "github.com/netbirdio/netbird/shared/management/types"
 	"github.com/netbirdio/netbird/shared/netiputil"
 	auth "github.com/netbirdio/netbird/shared/relay/auth/hmac"
@@ -874,6 +876,19 @@ func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 			continue
 		}
 
+		policy, err := nbnetworkmap.FromProtocolRelayPolicy(p.GetRelayPolicy())
+		if err != nil {
+			return err
+		}
+		existing := currentPeer.RelayPolicy()
+		if (existing == nil) != (policy == nil) || (existing != nil && policy != nil && (existing.Digest != policy.Digest || existing.State != policy.State)) {
+			modified = append(modified, p)
+			continue
+		}
+		if policy != nil {
+			currentPeer.UpdateRelayPolicyRevision(policy.Revision)
+		}
+
 		if currentPeer.AgentVersionString() != p.AgentVersion {
 			modified = append(modified, p)
 			continue
@@ -1616,6 +1631,18 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		return nil
 	}
 
+	if err := e.applyRelayPolicies(networkMap); err != nil {
+		if e.relayManager != nil {
+			if homeErr := e.relayManager.SetHomePolicy(&rp.ResolvedRelayPolicy{State: rp.RelayPolicyBlocked}); homeErr != nil {
+				log.Debugf("block home relay after invalid policy: %v", homeErr)
+			}
+		}
+		if closeErr := e.removeAllPeers(); closeErr != nil {
+			return fmt.Errorf("close peers after invalid relay identities: %v: %w", closeErr, err)
+		}
+		return err
+	}
+
 	// Only update the flag when the sync carries a peer config; a nil peer config
 	// (e.g. a partial update) must not reset the cached flag to false.
 	if peerConfig := networkMap.GetPeerConfig(); peerConfig != nil {
@@ -1714,6 +1741,11 @@ func (e *Engine) reconcilePeers(networkMap *mgmProto.NetworkMap) ([]*mgmProto.Re
 	localPubKey := e.config.WgPrivateKey.PublicKey().String()
 	remotePeers := make([]*mgmProto.RemotePeerConfig, 0, len(networkMap.GetRemotePeers()))
 	for _, p := range networkMap.GetRemotePeers() {
+		policy, err := nbnetworkmap.FromProtocolRelayPolicy(p.GetRelayPolicy())
+		if err != nil || (policy != nil && (policy.State == rp.RelayPolicyUnsupported || (policy.State == rp.RelayPolicyBlocked && policy.ForceRelay))) {
+			log.Debugf("withholding peer with unusable relay policy")
+			continue
+		}
 		if p.GetWgPubKey() != localPubKey {
 			remotePeers = append(remotePeers, p)
 		}
@@ -1974,7 +2006,11 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 		return fmt.Errorf("peer %s has no usable AllowedIPs", peerKey)
 	}
 
-	conn, err := e.createPeerConn(peerKey, peerIPs, peerConfig.AgentVersion)
+	policy, err := nbnetworkmap.FromProtocolRelayPolicy(peerConfig.GetRelayPolicy())
+	if err != nil {
+		return err
+	}
+	conn, err := e.createPeerConn(peerKey, peerIPs, peerConfig.AgentVersion, policy)
 	if err != nil {
 		return fmt.Errorf("create peer connection: %w", err)
 	}
@@ -1994,7 +2030,7 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 	return nil
 }
 
-func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentVersion string) (*peer.Conn, error) {
+func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentVersion string, policy *rp.ResolvedRelayPolicy) (*peer.Conn, error) {
 	log.Debugf("creating peer connection %s", pubKey)
 
 	wgConfig := peer.WgConfig{
@@ -2022,6 +2058,8 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs []netip.Prefix, agentV
 		ICEConfig: e.createICEConfig(),
 		NetMgr:    e.netMgr,
 	}
+
+	config.RelayPolicy = policy.Copy()
 
 	serviceDependencies := peer.ServiceDependencies{
 		StatusRecorder:     e.statusRecorder,
@@ -2961,13 +2999,14 @@ func convertToOfferAnswer(msg *sProto.Message) (*peer.OfferAnswer, error) {
 			UFrag: remoteCred.UFrag,
 			Pwd:   remoteCred.Pwd,
 		},
-		WgListenPort:    int(msg.GetBody().GetWgListenPort()),
-		Version:         msg.GetBody().GetNetBirdVersion(),
-		RosenpassPubKey: rosenpassPubKey,
-		RosenpassAddr:   rosenpassAddr,
-		RelaySrvAddress: msg.GetBody().GetRelayServerAddress(),
-		RelaySrvIP:      relayIP,
-		SessionID:       sessionID,
+		WgListenPort:       int(msg.GetBody().GetWgListenPort()),
+		Version:            msg.GetBody().GetNetBirdVersion(),
+		RosenpassPubKey:    rosenpassPubKey,
+		RosenpassAddr:      rosenpassAddr,
+		RelaySrvAddress:    msg.GetBody().GetRelayServerAddress(),
+		RelaySrvIP:         relayIP,
+		RelayPolicyAttempt: msg.GetBody().GetRelayPolicyAttempt(),
+		SessionID:          sessionID,
 	}
 	return &offerAnswer, nil
 }
@@ -2985,4 +3024,69 @@ func decodeRelayIP(b []byte) netip.Addr {
 		return netip.Addr{}
 	}
 	return ip.Unmap()
+}
+
+func (e *Engine) applyRelayPolicies(networkMap *mgmProto.NetworkMap) error {
+	if e.relayManager == nil {
+		return nil
+	}
+	entries := make(map[rp.RelayID]rp.RelayCatalogEntry)
+	var catalogErr error
+	var generation uint64
+	collect := func(policy *rp.ResolvedRelayPolicy) {
+		if policy == nil {
+			return
+		}
+		if generation != 0 && generation != policy.CatalogGeneration {
+			catalogErr = fmt.Errorf("inconsistent relay catalog generation")
+			return
+		}
+		generation = policy.CatalogGeneration
+		for _, tier := range policy.Tiers {
+			for _, entry := range tier {
+				if prior, ok := entries[entry.ID]; ok && !reflect.DeepEqual(prior, entry) {
+					catalogErr = fmt.Errorf("inconsistent relay identity")
+					return
+				}
+				entries[entry.ID] = entry
+			}
+		}
+	}
+	var home *rp.ResolvedRelayPolicy
+	if config := networkMap.GetPeerConfig(); config != nil {
+		var err error
+		home, err = nbnetworkmap.FromProtocolRelayPolicy(config.GetHomeRelayPolicy())
+		if err != nil {
+			home = &rp.ResolvedRelayPolicy{State: rp.RelayPolicyBlocked}
+		}
+		collect(home)
+	}
+	for _, remote := range networkMap.GetRemotePeers() {
+		policy, err := nbnetworkmap.FromProtocolRelayPolicy(remote.GetRelayPolicy())
+		if err == nil {
+			collect(policy)
+		}
+	}
+	if catalogErr != nil {
+		return catalogErr
+	}
+	catalog := make([]rp.RelayCatalogEntry, 0, len(entries))
+	for _, entry := range entries {
+		catalog = append(catalog, entry)
+	}
+	var catalogApplyErr error
+	if generation != 0 {
+		catalogApplyErr = e.relayManager.SetCatalogGeneration(generation, catalog)
+	} else {
+		catalogApplyErr = e.relayManager.SetCatalog(catalog)
+	}
+	if err := catalogApplyErr; err != nil {
+		return fmt.Errorf("apply relay identities: %w", err)
+	}
+	if networkMap.GetPeerConfig() != nil {
+		if err := e.relayManager.SetHomePolicy(home); err != nil {
+			return fmt.Errorf("apply home relay policy: %w", err)
+		}
+	}
+	return nil
 }

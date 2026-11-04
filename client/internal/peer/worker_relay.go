@@ -10,6 +10,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
+	sproto "github.com/netbirdio/netbird/shared/signal/proto"
 )
 
 type RelayConnInfo struct {
@@ -30,6 +31,7 @@ type WorkerRelay struct {
 	relayLock   sync.Mutex
 
 	relaySupportedOnRemotePeer atomic.Bool
+	managed                    *managedRelay
 }
 
 func NewWorkerRelay(ctx context.Context, log *log.Entry, ctrl bool, config ConnConfig, conn *Conn, relayManager *relayClient.Manager) *WorkerRelay {
@@ -41,10 +43,18 @@ func NewWorkerRelay(ctx context.Context, log *log.Entry, ctrl bool, config ConnC
 		conn:         conn,
 		relayManager: relayManager,
 	}
+	if config.RelayPolicy != nil {
+		r.managed = newManagedRelay(r)
+	}
 	return r
 }
 
 func (w *WorkerRelay) OnNewOffer(remoteOfferAnswer *OfferAnswer) {
+	if w.managed != nil {
+		w.relaySupportedOnRemotePeer.Store(w.managed.accept(remoteOfferAnswer.RelayPolicyAttempt))
+		w.managed.receive(remoteOfferAnswer)
+		return
+	}
 	if !w.isRelaySupported(remoteOfferAnswer) {
 		w.log.Infof("Relay is not supported by remote peer")
 		w.relaySupportedOnRemotePeer.Store(false)
@@ -98,14 +108,23 @@ func (w *WorkerRelay) IsRelayConnectionSupportedWithPeer() bool {
 }
 
 func (w *WorkerRelay) RelayIsSupportedLocally() bool {
+	if w.managed != nil {
+		return w.managed.readyPolicy()
+	}
 	return w.relayManager.HasRelayAddress()
 }
 
 func (w *WorkerRelay) IsTransportConnected() bool {
+	if w.managed != nil {
+		return w.managed.readyPolicy()
+	}
 	return w.relayManager.Ready()
 }
 
 func (w *WorkerRelay) CloseConn() {
+	if w.managed != nil {
+		w.managed.close()
+	}
 	w.relayLock.Lock()
 	conn := w.relayedConn
 	w.relayedConn = nil
@@ -138,4 +157,33 @@ func (w *WorkerRelay) watchRelayedConn(relayedConn *relayClient.Conn) {
 	<-relayedConn.Context().Done()
 
 	w.conn.onRelayDisconnected(relayedConn)
+}
+
+func (w *WorkerRelay) policyAnnouncement() *sproto.RelayPolicyAttempt {
+	if w.managed == nil {
+		return nil
+	}
+	return w.managed.announcement()
+}
+
+func (w *WorkerRelay) acceptPolicy(offer *OfferAnswer) bool {
+	if w.managed == nil {
+		return offer.RelayPolicyAttempt == nil
+	}
+	return w.managed.accept(offer.RelayPolicyAttempt)
+}
+
+func (w *WorkerRelay) isCurrentConnection(conn *relayClient.Conn) bool {
+	if w.managed == nil {
+		return true
+	}
+	m := w.managed
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.stopped || m.current == nil || m.selectedSequence != m.current.Sequence || string(m.selected) != m.current.RelayId {
+		return false
+	}
+	w.relayLock.Lock()
+	defer w.relayLock.Unlock()
+	return w.relayedConn == conn
 }

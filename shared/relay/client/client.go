@@ -260,6 +260,10 @@ func NewClientWithServerIP(serverURL string, serverIP netip.Addr, authTokenStore
 
 // Connect establishes a connection to the relay server. It blocks until the connection is established or an error occurs.
 func (c *Client) Connect(ctx context.Context) error {
+	return c.connectWithLifetime(ctx, ctx)
+}
+
+func (c *Client) connectWithLifetime(ctx, lifetime context.Context) error {
 	c.log.Infof("connecting to relay server")
 	c.readLoopMutex.Lock()
 	defer c.readLoopMutex.Unlock()
@@ -288,7 +292,7 @@ func (c *Client) Connect(ctx context.Context) error {
 
 	internallyStoppedFlag := newInternalStopFlag()
 	hc := healthcheck.NewReceiver(c.log)
-	go c.listenForStopEvents(ctx, hc, c.relayConn, internallyStoppedFlag)
+	go c.listenForStopEvents(lifetime, hc, c.relayConn, internallyStoppedFlag)
 
 	c.wgReadLoop.Add(1)
 	go c.readLoop(hc, c.relayConn, internallyStoppedFlag)

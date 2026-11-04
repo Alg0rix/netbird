@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/netbirdio/ice/v4"
@@ -28,6 +29,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/netevents"
 	"github.com/netbirdio/netbird/route"
+	rp "github.com/netbirdio/netbird/shared/management/relaypolicy"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 )
 
@@ -77,6 +79,7 @@ type RosenpassConfig struct {
 
 // ConnConfig is a peer Connection configuration
 type ConnConfig struct {
+	RelayPolicy *rp.ResolvedRelayPolicy
 	// Key is a public key of a remote peer
 	Key string
 	// LocalKey is a public key of a local peer
@@ -101,6 +104,7 @@ type ConnConfig struct {
 }
 
 type Conn struct {
+	policyRevision     atomic.Uint64
 	Log                *log.Entry
 	mu                 sync.Mutex
 	ctx                context.Context
@@ -189,6 +193,7 @@ func (conn *Conn) injectPendingFirstPacket(proxy wgproxy.Proxy, directConn net.C
 // NewConn creates a new not opened Conn to the remote peer.
 // To establish a connection run Conn.Open
 func NewConn(config ConnConfig, services ServiceDependencies) (*Conn, error) {
+	config.RelayPolicy = config.RelayPolicy.Copy()
 	if len(config.WgConfig.AllowedIps) == 0 {
 		return nil, fmt.Errorf("allowed IPs is empty")
 	}
@@ -243,7 +248,7 @@ func (conn *Conn) open(engineCtx context.Context, firstPacket []byte) error {
 
 	conn.workerRelay = NewWorkerRelay(conn.ctx, conn.Log, isController(conn.config), conn.config, conn, conn.relayManager)
 
-	forceRelay := IsForceRelayed()
+	forceRelay := IsForceRelayed() || (conn.config.RelayPolicy != nil && conn.config.RelayPolicy.ForceRelay)
 	if !forceRelay {
 		relayIsSupportedLocally := conn.workerRelay.RelayIsSupportedLocally()
 		workerICE, err := NewWorkerICE(conn.ctx, conn.Log, conn.config, conn, conn.signaler, conn.iFaceDiscover, conn.statusRecorder, relayIsSupportedLocally)
@@ -561,7 +566,7 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
-	if conn.ctx.Err() != nil || rci.relayedConn.Context().Err() != nil {
+	if conn.ctx.Err() != nil || rci.relayedConn.Context().Err() != nil || !conn.workerRelay.isCurrentConnection(rci.relayedConn) {
 		if err := rci.relayedConn.Close(); err != nil {
 			conn.Log.Warnf("failed to close unnecessary relayed connection: %v", err)
 		}
@@ -574,6 +579,9 @@ func (conn *Conn) onRelayConnectionIsReady(rci RelayConnInfo) {
 	wgProxy, err := conn.newProxy(rci.relayedConn)
 	if err != nil {
 		conn.Log.Errorf("failed to add relayed net.Conn to local proxy: %v", err)
+		if closeErr := rci.relayedConn.Close(); closeErr != nil {
+			conn.Log.Debugf("close relay after proxy creation: %v", closeErr)
+		}
 		return
 	}
 	wgProxy.SetDisconnectListener(func() {
@@ -1100,4 +1108,37 @@ func metricsConnType(priority conntype.ConnPriority) metrics.ConnectionType {
 	default:
 		return metrics.ConnectionTypeUnknown
 	}
+}
+
+// RelayPolicy returns a detached snapshot of the effective pair instructions.
+func (conn *Conn) RelayPolicy() *rp.ResolvedRelayPolicy {
+	p := conn.config.RelayPolicy.Copy()
+	if p != nil {
+		if revision := conn.policyRevision.Load(); revision != 0 {
+			p.Revision = revision
+		}
+	}
+	return p
+}
+
+// UpdateRelayPolicyRevision refreshes reporting metadata without changing transport.
+func (conn *Conn) UpdateRelayPolicyRevision(revision uint64) {
+	conn.policyRevision.Store(revision)
+}
+
+// RelayPolicySelection returns the acknowledged native relay and attempt sequence.
+func (conn *Conn) RelayPolicySelection() (rp.RelayID, uint64) {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	relayWorker := conn.workerRelay
+	if relayWorker == nil || relayWorker.managed == nil || conn.currentConnPriority != conntype.Relay || conn.statusRelay.Get() != worker.StatusConnected {
+		return "", 0
+	}
+	m := relayWorker.managed
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.stopped {
+		return "", 0
+	}
+	return m.selected, m.selectedSequence
 }

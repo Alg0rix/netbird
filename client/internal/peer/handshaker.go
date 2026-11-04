@@ -9,6 +9,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	sproto "github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/netbirdio/netbird/version"
 )
 
@@ -24,7 +25,8 @@ type IceCredentials struct {
 
 // OfferAnswer represents a session establishment offer or answer
 type OfferAnswer struct {
-	IceCredentials IceCredentials
+	RelayPolicyAttempt *sproto.RelayPolicyAttempt
+	IceCredentials     IceCredentials
 	// WgListenPort is a remote WireGuard listen port.
 	// This field is used when establishing a direct WireGuard connection without any proxy.
 	// We can set the remote peer's endpoint with this port.
@@ -123,13 +125,18 @@ func (h *Handshaker) Listen(ctx context.Context) {
 				h.metricsStages.RecordSignalingReceived()
 			}
 
-			h.updateRemoteICEState(&remoteOfferAnswer)
+			if !h.relay.acceptPolicy(&remoteOfferAnswer) {
+				continue
+			}
+			if remoteOfferAnswer.RelayPolicyAttempt == nil || remoteOfferAnswer.RelayPolicyAttempt.Sequence == 0 {
+				h.updateRemoteICEState(&remoteOfferAnswer)
+			}
 
 			if h.relayListener != nil {
 				h.relayListener.Notify(&remoteOfferAnswer)
 			}
 
-			if h.iceListener != nil && h.RemoteICESupported() {
+			if h.iceListener != nil && h.RemoteICESupported() && (remoteOfferAnswer.RelayPolicyAttempt == nil || remoteOfferAnswer.RelayPolicyAttempt.Sequence == 0) {
 				h.iceListener(&remoteOfferAnswer)
 			}
 
@@ -145,13 +152,18 @@ func (h *Handshaker) Listen(ctx context.Context) {
 				h.metricsStages.RecordSignalingReceived()
 			}
 
-			h.updateRemoteICEState(&remoteOfferAnswer)
+			if !h.relay.acceptPolicy(&remoteOfferAnswer) {
+				continue
+			}
+			if remoteOfferAnswer.RelayPolicyAttempt == nil || remoteOfferAnswer.RelayPolicyAttempt.Sequence == 0 {
+				h.updateRemoteICEState(&remoteOfferAnswer)
+			}
 
 			if h.relayListener != nil {
 				h.relayListener.Notify(&remoteOfferAnswer)
 			}
 
-			if h.iceListener != nil && h.RemoteICESupported() {
+			if h.iceListener != nil && h.RemoteICESupported() && (remoteOfferAnswer.RelayPolicyAttempt == nil || remoteOfferAnswer.RelayPolicyAttempt.Sequence == 0) {
 				h.iceListener(&remoteOfferAnswer)
 			}
 		case <-ctx.Done():
@@ -241,6 +253,7 @@ func (h *Handshaker) buildOfferAnswer() OfferAnswer {
 		answer.RelaySrvIP = ip
 	}
 
+	answer.RelayPolicyAttempt = h.relay.policyAnnouncement()
 	return answer
 }
 
