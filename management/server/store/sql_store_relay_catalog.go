@@ -148,7 +148,7 @@ func (s *SqlStore) PublishRelayCatalog(ctx context.Context, candidate types.Rela
 		}
 		return tx.Model(&types.Account{}).
 			Where("id IN (?)", tx.Model(&types.RelayAccountState{}).Select("account_id")).
-			Update("network_serial", gorm.Expr("network_serial + 1")).Error
+			Update("network_serial", gorm.Expr("COALESCE(network_serial, 0) + 1")).Error
 	})
 	if err != nil {
 		return types.RelayCatalog{}, err

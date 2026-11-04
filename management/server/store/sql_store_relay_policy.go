@@ -74,7 +74,7 @@ func readRelaySnapshot(tx *gorm.DB, accountID types.AccountID) (sharedrelay.Snap
 	}
 	snapshot.Catalog = catalog
 	var serial uint64
-	if err := tx.Model(&types.Account{}).Select("network_serial").Where("id = ?", accountID).Scan(&serial).Error; err != nil {
+	if err := tx.Model(&types.Account{}).Select("COALESCE(network_serial, 0)").Where("id = ?", accountID).Scan(&serial).Error; err != nil {
 		return snapshot, err
 	}
 	snapshot.NetworkSerial = serial
@@ -134,7 +134,7 @@ func (s *SqlStore) SaveRelayConfiguration(ctx context.Context, accountID types.A
 			return err
 		}
 		result := tx.Model(&types.Account{}).Where("id = ?", accountID).
-			Update("network_serial", gorm.Expr("network_serial + 1"))
+			Update("network_serial", gorm.Expr("COALESCE(network_serial, 0) + 1"))
 		if result.Error != nil {
 			return result.Error
 		}
@@ -252,7 +252,7 @@ func (s *SqlStore) AdvanceRelayReselection(ctx context.Context, accountID types.
 			return err
 		}
 		result := tx.Model(&types.Account{}).Where("id = ?", accountID).
-			Update("network_serial", gorm.Expr("network_serial + 1"))
+			Update("network_serial", gorm.Expr("COALESCE(network_serial, 0) + 1"))
 		if result.Error != nil {
 			return result.Error
 		}
@@ -397,5 +397,5 @@ func deleteRelayPeerConfig(tx *gorm.DB, accountID, peerID string) error {
 		return err
 	}
 	return tx.Model(&types.Account{}).Where("id = ?", accountID).
-		Update("network_serial", gorm.Expr("network_serial + 1")).Error
+		Update("network_serial", gorm.Expr("COALESCE(network_serial, 0) + 1")).Error
 }

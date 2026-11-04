@@ -36,7 +36,7 @@ func ReadSnapshot(ctx context.Context, query Query, accountID relaypolicy.Accoun
 	}
 	args := []any{string(accountID)}
 	foundAccount := false
-	if err := each(ctx, query, `SELECT network_serial FROM accounts WHERE id = $1`, args, func(rows Rows) error {
+	if err := each(ctx, query, `SELECT COALESCE(network_serial, 0) FROM accounts WHERE id = $1`, args, func(rows Rows) error {
 		foundAccount = true
 		return rows.Scan(&snapshot.NetworkSerial)
 	}); err != nil {

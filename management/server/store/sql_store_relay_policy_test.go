@@ -49,6 +49,37 @@ func relayTestCatalog() types.RelayCatalog {
 	}}
 }
 
+func TestRelaySnapshotWithoutAccountNetwork(t *testing.T) {
+	s, _ := newRelayStore(t)
+	ctx := t.Context()
+	account := &types.Account{Id: "networkless"}
+	require.NoError(t, s.SaveAccount(ctx, account))
+	loaded, err := s.GetAccount(ctx, account.Id)
+	require.NoError(t, err)
+	require.NotNil(t, loaded.Network)
+	assert.Zero(t, loaded.Network.Serial, "loading a networkless account retains the zero serial")
+	snapshot, err := s.GetRelaySnapshot(ctx, "networkless")
+	require.NoError(t, err)
+	assert.Zero(t, snapshot.NetworkSerial, "an absent network has no serial")
+	assert.Empty(t, snapshot.Policies, "an absent relay configuration stays unconfigured")
+	db, err := s.db.DB()
+	require.NoError(t, err)
+	adapterSnapshot, err := relaypolicydb.ReadSnapshot(ctx, func(ctx context.Context, query string, args ...any) (relaypolicydb.Rows, error) {
+		rows, err := db.QueryContext(ctx, query, args...)
+		if err != nil {
+			return nil, err
+		}
+		return relaySQLRows{rows}, nil
+	}, "networkless")
+	require.NoError(t, err)
+	assert.Equal(t, snapshot, adapterSnapshot, "the shared cursor adapter agrees for a nullable legacy serial")
+	_, err = s.SaveRelayConfiguration(ctx, "networkless", 0, snapshot.Catalog.Generation, sharedrelay.Configuration{})
+	require.NoError(t, err)
+	updated, err := s.GetRelaySnapshot(ctx, "networkless")
+	require.NoError(t, err)
+	assert.Equal(t, uint64(1), updated.NetworkSerial, "the first mutation advances a nullable serial from zero")
+}
+
 func relayTestConfiguration() sharedrelay.Configuration {
 	return sharedrelay.Configuration{
 		Groups: []types.RelayGroup{{ID: "region", AccountID: "relay-account", Name: "Region", RelayIDs: []types.RelayID{"a", "b"}}},
