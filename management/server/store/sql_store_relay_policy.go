@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"reflect"
 	"slices"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/netbirdio/netbird/management/internals/relaypolicydb"
@@ -17,7 +17,32 @@ import (
 	"github.com/netbirdio/netbird/management/server/relaypolicy"
 	"github.com/netbirdio/netbird/management/server/types"
 	sharedrelay "github.com/netbirdio/netbird/shared/management/relaypolicy"
+	"github.com/netbirdio/netbird/shared/management/status"
 )
+
+// RelayRetryMinimumInterval bounds explicit retry requests per persisted target across replicas.
+const RelayRetryMinimumInterval = 10 * time.Second
+
+// LockRelayConfiguration serializes policy activation and peer-group edits in a transaction.
+// Callers must hold the enclosing store transaction until their mutation is complete.
+func (s *SqlStore) LockRelayConfiguration(ctx context.Context, accountID types.AccountID) error {
+	if s.tx == nil {
+		return fmt.Errorf("relay configuration lock requires a transaction")
+	}
+	var head relayCatalogHead
+	if err := s.db.WithContext(ctx).Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ?", 1).Take(&head).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	result := s.db.WithContext(ctx).Model(&types.Account{}).Where("id = ?", accountID).
+		Update("network_serial", gorm.Expr("network_serial"))
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
 
 // GetRelaySnapshot reads catalog and account configuration under one consistent transaction.
 func (s *SqlStore) GetRelaySnapshot(ctx context.Context, accountID types.AccountID) (sharedrelay.Snapshot, error) {
@@ -126,8 +151,7 @@ func (s *SqlStore) SaveRelayConfiguration(ctx context.Context, accountID types.A
 		if current.Revision != expectedRevision {
 			return ErrRelayRevisionConflict
 		}
-		candidate.Revision = expectedRevision + 1
-		advanceRelayEntityRevisions(&candidate, current.Configuration)
+		candidate = sharedrelay.NextConfiguration(current.Configuration, candidate)
 		input, err := relayInputForConfiguration(tx, accountID, current.Catalog, candidate)
 		if err != nil {
 			return err
@@ -152,15 +176,12 @@ func (s *SqlStore) SaveRelayConfiguration(ctx context.Context, accountID types.A
 }
 
 func lockRelayCatalog(tx *gorm.DB, generation uint64) error {
-	result := tx.Model(&relayCatalogHead{}).Where("id = ? AND generation = ?", 1, generation).
-		Update("generation", gorm.Expr("generation"))
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected != 1 {
+	var head relayCatalogHead
+	err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND generation = ?", 1, generation).Take(&head).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return ErrRelayRevisionConflict
 	}
-	return nil
+	return err
 }
 
 func relayInputForConfiguration(tx *gorm.DB, accountID types.AccountID, catalog types.RelayCatalog, config sharedrelay.Configuration) (types.RelayPolicyInput, error) {
@@ -214,45 +235,6 @@ func replaceRelayRelations(tx *gorm.DB, accountID types.AccountID, candidate sha
 	return nil
 }
 
-func advanceRelayEntityRevisions(candidate *sharedrelay.Configuration, current sharedrelay.Configuration) {
-	groups := make(map[types.RelayGroupID]types.RelayGroup, len(current.Groups))
-	for _, group := range current.Groups {
-		groups[group.ID] = group
-	}
-	for i, group := range candidate.Groups {
-		old, exists := groups[group.ID]
-		group.Revision = old.Revision
-		if !exists || !reflect.DeepEqual(group, old) {
-			group.Revision++
-		}
-		candidate.Groups[i] = group
-	}
-	profiles := make(map[types.RelayProfileID]types.RelayHomeProfile, len(current.Profiles))
-	for _, profile := range current.Profiles {
-		profiles[profile.ID] = profile
-	}
-	for i, profile := range candidate.Profiles {
-		old, exists := profiles[profile.ID]
-		profile.Revision = old.Revision
-		if !exists || !reflect.DeepEqual(profile, old) {
-			profile.Revision++
-		}
-		candidate.Profiles[i] = profile
-	}
-	policies := make(map[types.RelayPolicyID]types.RelayPairPolicy, len(current.Policies))
-	for _, policy := range current.Policies {
-		policies[policy.ID] = policy
-	}
-	for i, policy := range candidate.Policies {
-		old, exists := policies[policy.ID]
-		policy.Revision = old.Revision
-		if !exists || !reflect.DeepEqual(policy, old) {
-			policy.Revision++
-		}
-		candidate.Policies[i] = policy
-	}
-}
-
 // AdvanceRelayReselection increments only the selected home or unordered-pair directive and network serial.
 // Manager callers additionally validate authorization, effective policy revision, capability and rate limits.
 func (s *SqlStore) AdvanceRelayReselection(ctx context.Context, accountID types.AccountID, a, b types.PeerID, expectedRevision uint64) (uint64, error) {
@@ -304,7 +286,12 @@ func (s *SqlStore) AdvanceRelayReselection(ctx context.Context, accountID types.
 		if directive.Generation >= math.MaxInt64 {
 			return ErrRelayRevisionConflict
 		}
+		now := time.Now().UTC()
+		if !directive.LastRequestedAt.IsZero() && now.Sub(directive.LastRequestedAt) < RelayRetryMinimumInterval {
+			return status.Errorf(status.TooManyRequests, "retry preferred is limited to once per target every 10 seconds")
+		}
 		directive.Generation++
+		directive.LastRequestedAt = now
 		generation = directive.Generation
 		return tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&directive).Error
 	})

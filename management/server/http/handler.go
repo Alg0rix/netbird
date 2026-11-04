@@ -45,6 +45,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/handlers/networks"
 	"github.com/netbirdio/netbird/management/server/http/handlers/peers"
 	"github.com/netbirdio/netbird/management/server/http/handlers/policies"
+	relaypolicies "github.com/netbirdio/netbird/management/server/http/handlers/relay_policies"
 	"github.com/netbirdio/netbird/management/server/http/handlers/routes"
 	"github.com/netbirdio/netbird/management/server/http/handlers/setup_keys"
 	"github.com/netbirdio/netbird/management/server/http/handlers/users"
@@ -97,6 +98,7 @@ func NewAPIHandler(ctx context.Context, router *mux.Router, accountManager accou
 	policies.AddPostureCheckEndpoints(accountManager, LocationManager, router)
 	policies.AddLocationsEndpoints(accountManager, LocationManager, permissionsManager, router)
 	groups.AddEndpoints(accountManager, router)
+	relaypolicies.AddEndpoints(accountManager, permissionsManager, router)
 	routes.AddEndpoints(accountManager, router)
 	dns.AddEndpoints(accountManager, router)
 	events.AddEndpoints(accountManager, router)

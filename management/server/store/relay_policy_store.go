@@ -9,6 +9,7 @@ import (
 
 // RelayPolicyStore extends SQL-backed stores without requiring legacy stores to claim policy support.
 type RelayPolicyStore interface {
+	LockRelayConfiguration(context.Context, types.AccountID) error
 	GetRelayCatalog(context.Context) (types.RelayCatalog, error)
 	InitializeRelayCatalog(context.Context, types.RelayCatalog) (types.RelayCatalog, error)
 	PreviewRelayCatalog(context.Context, types.RelayCatalog, uint64) (*RelayCatalogImpact, error)

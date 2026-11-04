@@ -7,6 +7,8 @@ info:
   description: API to manipulate groups, rules, policies and retrieve information about peers and users
   version: 0.0.1
 tags:
+  - name: Relay Policies
+    description: Account relay groups, home profiles and symmetric pair transport policies. Configuration never grants network access.
   - name: Users
     description: Interact with and view information about users.
   - name: Tokens
@@ -105,6 +107,201 @@ tags:
 
 components:
   schemas:
+    RelayCatalogItem:
+      type: object
+      required: [id, endpoint, instance_endpoint, aliases, active, legacy]
+      properties:
+        id: {type: string}
+        endpoint: {type: string}
+        instance_endpoint: {type: string}
+        aliases: {type: array, items: {type: string}}
+        active: {type: boolean}
+        legacy:
+          type: boolean
+          description: Legacy advertisements cannot be referenced by managed policies.
+    RelayCatalogResponse:
+      type: object
+      required: [generation, entries]
+      properties:
+        generation: {type: integer, minimum: 0, x-go-type: uint64}
+        entries: {type: array, items: {$ref: '#/components/schemas/RelayCatalogItem'}}
+    RelayPeerSelector:
+      type: object
+      required: [peer_ids, group_ids]
+      properties:
+        peer_ids: {type: array, maxItems: 1000, items: {type: string}}
+        group_ids: {type: array, maxItems: 1000, items: {type: string}}
+    RelaySelection:
+      type: object
+      required: [relay_ids, group_ids]
+      properties:
+        relay_ids: {type: array, maxItems: 1000, items: {type: string}}
+        group_ids: {type: array, maxItems: 1000, items: {type: string}}
+    RelayConstraints:
+      type: object
+      required: [exclude, preferences, force_relay]
+      properties:
+        allow:
+          $ref: '#/components/schemas/RelaySelection'
+          description: Omitted means all approved active relays. Explicitly empty is invalid.
+        exclude: {$ref: '#/components/schemas/RelaySelection'}
+        preferences:
+          type: array
+          maxItems: 64
+          items: {$ref: '#/components/schemas/RelaySelection'}
+        force_relay: {type: boolean}
+    RelayGroup:
+      type: object
+      required: [id, name, revision, relay_ids]
+      properties:
+        id: {type: string}
+        name: {type: string, minLength: 1, maxLength: 255}
+        revision: {type: integer, minimum: 0, x-go-type: uint64, readOnly: true}
+        relay_ids: {type: array, maxItems: 1000, items: {type: string}}
+    RelayHomeProfile:
+      type: object
+      required: [id, name, revision, priority, enabled, selector, constraints]
+      properties:
+        id: {type: string}
+        name: {type: string, minLength: 1, maxLength: 255}
+        revision: {type: integer, minimum: 0, x-go-type: uint64, readOnly: true}
+        priority: {type: integer, minimum: 0, x-go-type: uint32}
+        enabled: {type: boolean}
+        selector: {$ref: '#/components/schemas/RelayPeerSelector'}
+        constraints: {$ref: '#/components/schemas/RelayConstraints'}
+    RelayPairPolicy:
+      type: object
+      required: [id, name, revision, priority, enabled, source, destination, constraints]
+      properties:
+        id: {type: string}
+        name: {type: string, minLength: 1, maxLength: 255}
+        revision: {type: integer, minimum: 0, x-go-type: uint64, readOnly: true}
+        priority: {type: integer, minimum: 0, x-go-type: uint32}
+        enabled: {type: boolean}
+        source: {$ref: '#/components/schemas/RelayPeerSelector'}
+        destination: {$ref: '#/components/schemas/RelayPeerSelector'}
+        constraints: {$ref: '#/components/schemas/RelayConstraints'}
+    RelayPolicyConfiguration:
+      type: object
+      required: [revision, catalog_generation, groups, home_profiles, pair_policies, supported]
+      properties:
+        supported: {type: boolean, description: Server supports relay policy administration.}
+        revision: {type: integer, minimum: 0, x-go-type: uint64}
+        catalog_generation: {type: integer, minimum: 0, x-go-type: uint64}
+        groups: {type: array, maxItems: 1000, items: {$ref: '#/components/schemas/RelayGroup'}}
+        home_profiles: {type: array, maxItems: 1000, items: {$ref: '#/components/schemas/RelayHomeProfile'}}
+        pair_policies: {type: array, maxItems: 1000, items: {$ref: '#/components/schemas/RelayPairPolicy'}}
+    RelayPolicyContribution:
+      type: object
+      required: [id, revision, eliminated]
+      properties:
+        id: {type: string}
+        revision: {type: integer, minimum: 0, x-go-type: uint64}
+        eliminated: {type: array, items: {type: string}}
+    RelayEffectivePolicy:
+      type: object
+      required: [state, revision, catalog_generation, reselection_generation, digest, force_relay, tiers, contributors, preference_rule, eliminated]
+      properties:
+        state: {type: string, enum: [ready, blocked]}
+        revision: {type: integer, minimum: 0, x-go-type: uint64}
+        catalog_generation: {type: integer, minimum: 0, x-go-type: uint64}
+        reselection_generation: {type: integer, minimum: 0, x-go-type: uint64}
+        digest: {type: string}
+        force_relay: {type: boolean}
+        tiers:
+          type: array
+          items: {type: array, items: {$ref: '#/components/schemas/RelayCatalogItem'}}
+        contributors: {type: array, items: {$ref: '#/components/schemas/RelayPolicyContribution'}}
+        preference_rule: {type: string}
+        eliminated: {type: array, items: {type: string}}
+    RelayEffectiveResponse:
+      type: object
+      properties:
+        policy:
+          $ref: '#/components/schemas/RelayEffectivePolicy'
+          description: Absent means legacy behavior; a present blocked policy never permits unrestricted fallback.
+    RelayHomePreview:
+      type: object
+      required: [peer_id, unsupported]
+      properties:
+        peer_id: {type: string}
+        policy: {$ref: '#/components/schemas/RelayEffectivePolicy'}
+        unsupported: {type: boolean}
+    RelayPairPreview:
+      type: object
+      required: [peer_a, peer_b, unsupported]
+      properties:
+        peer_a: {type: string}
+        peer_b: {type: string}
+        policy: {$ref: '#/components/schemas/RelayEffectivePolicy'}
+        unsupported: {type: boolean}
+    RelayPolicyPreview:
+      type: object
+      required: [revision, catalog_generation, home, pairs, truncated]
+      properties:
+        truncated: {type: boolean, description: Preview exceeded its bounded result count; narrow the target scope.}
+        revision: {type: integer, minimum: 0, x-go-type: uint64}
+        catalog_generation: {type: integer, minimum: 0, x-go-type: uint64}
+        home: {type: array, items: {$ref: '#/components/schemas/RelayHomePreview'}}
+        pairs: {type: array, items: {$ref: '#/components/schemas/RelayPairPreview'}}
+    RelayRetryRequest:
+      type: object
+      required: [peer_a, expected_digest]
+      properties:
+        peer_a: {type: string}
+        peer_b: {type: string, description: Omit for home registration retry.}
+        expected_digest: {type: string, minLength: 1}
+    RelayRetryResponse:
+      type: object
+      required: [generation]
+      properties:
+        generation: {type: integer, minimum: 0, x-go-type: uint64}
+        policy: {$ref: '#/components/schemas/RelayEffectivePolicy'}
+    RelayGroupMutation:
+      type: object
+      required: [expected_revision, catalog_generation, resource]
+      properties:
+        expected_revision: {type: integer, minimum: 0, x-go-type: uint64}
+        catalog_generation: {type: integer, minimum: 0, x-go-type: uint64}
+        resource: {$ref: '#/components/schemas/RelayGroup'}
+    RelayGroupList:
+      type: object
+      required: [revision, catalog_generation, total, items]
+      properties:
+        revision: {type: integer, minimum: 0, x-go-type: uint64}
+        catalog_generation: {type: integer, minimum: 0, x-go-type: uint64}
+        total: {type: integer}
+        items: {type: array, items: {$ref: '#/components/schemas/RelayGroup'}}
+    RelayHomeProfileMutation:
+      type: object
+      required: [expected_revision, catalog_generation, resource]
+      properties:
+        expected_revision: {type: integer, minimum: 0, x-go-type: uint64}
+        catalog_generation: {type: integer, minimum: 0, x-go-type: uint64}
+        resource: {$ref: '#/components/schemas/RelayHomeProfile'}
+    RelayHomeProfileList:
+      type: object
+      required: [revision, catalog_generation, total, items]
+      properties:
+        revision: {type: integer, minimum: 0, x-go-type: uint64}
+        catalog_generation: {type: integer, minimum: 0, x-go-type: uint64}
+        total: {type: integer}
+        items: {type: array, items: {$ref: '#/components/schemas/RelayHomeProfile'}}
+    RelayPairPolicyMutation:
+      type: object
+      required: [expected_revision, catalog_generation, resource]
+      properties:
+        expected_revision: {type: integer, minimum: 0, x-go-type: uint64}
+        catalog_generation: {type: integer, minimum: 0, x-go-type: uint64}
+        resource: {$ref: '#/components/schemas/RelayPairPolicy'}
+    RelayPairPolicyList:
+      type: object
+      required: [revision, catalog_generation, total, items]
+      properties:
+        revision: {type: integer, minimum: 0, x-go-type: uint64}
+        catalog_generation: {type: integer, minimum: 0, x-go-type: uint64}
+        total: {type: integer}
+        items: {type: array, items: {$ref: '#/components/schemas/RelayPairPolicy'}}
     PasswordChangeRequest:
       type: object
       properties:
@@ -6503,6 +6700,766 @@ security:
   - BearerAuth: [ ]
   - TokenAuth: [ ]
 paths:
+  /api/relay-catalog:
+    get:
+      summary: Read the operator-approved relay catalog
+      tags: [Relay Policies]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      responses:
+        '200':
+          description: Read the operator-approved relay catalog
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RelayCatalogResponse'}
+        '400':
+          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+        '401':
+          $ref: '#/components/responses/requires_authentication'
+        '403':
+          $ref: '#/components/responses/forbidden'
+        '404':
+          description: Resource not found in this account.
+        '409':
+          description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '429':
+          description: Retry request rate limit exceeded.
+        '500':
+          $ref: '#/components/responses/internal_error'
+  /api/relay-policies/configuration:
+    get:
+      summary: Read relay policy configuration and feature support
+      tags: [Relay Policies]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      responses:
+        '200':
+          description: Read relay policy configuration and feature support
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RelayPolicyConfiguration'}
+        '400':
+          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+        '401':
+          $ref: '#/components/responses/requires_authentication'
+        '403':
+          $ref: '#/components/responses/forbidden'
+        '404':
+          description: Resource not found in this account.
+        '409':
+          description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '429':
+          description: Retry request rate limit exceeded.
+        '500':
+          $ref: '#/components/responses/internal_error'
+    put:
+      summary: Replace relay configuration atomically using its revision and catalog generation
+      tags: [Relay Policies]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RelayPolicyConfiguration'}
+      responses:
+        '200':
+          description: Replace relay configuration atomically using its revision and catalog generation
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RelayPolicyConfiguration'}
+        '400':
+          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+        '401':
+          $ref: '#/components/responses/requires_authentication'
+        '403':
+          $ref: '#/components/responses/forbidden'
+        '404':
+          description: Resource not found in this account.
+        '409':
+          description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '429':
+          description: Retry request rate limit exceeded.
+        '500':
+          $ref: '#/components/responses/internal_error'
+  /api/relay-policies/preview:
+    post:
+      summary: Preview affected authorized peers and pairs without changing configuration
+      tags: [Relay Policies]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RelayPolicyConfiguration'}
+      responses:
+        '200':
+          description: Preview affected authorized peers and pairs without changing configuration
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RelayPolicyPreview'}
+        '400':
+          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+        '401':
+          $ref: '#/components/responses/requires_authentication'
+        '403':
+          $ref: '#/components/responses/forbidden'
+        '404':
+          description: Resource not found in this account.
+        '409':
+          description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '429':
+          description: Retry request rate limit exceeded.
+        '500':
+          $ref: '#/components/responses/internal_error'
+  /api/relay-policies/effective:
+    get:
+      summary: Read effective home or unordered pair transport policy
+      tags: [Relay Policies]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      parameters:
+        - name: peer_a
+          in: query
+          required: true
+          description: Local or remote account peer ID.
+          schema: {type: string}
+        - name: peer_b
+          in: query
+          required: false
+          description: Other peer ID; omit for home scope. Pair orientation is irrelevant.
+          schema: {type: string}
+      responses:
+        '200':
+          description: Read effective home or unordered pair transport policy
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RelayEffectiveResponse'}
+        '400':
+          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+        '401':
+          $ref: '#/components/responses/requires_authentication'
+        '403':
+          $ref: '#/components/responses/forbidden'
+        '404':
+          description: Resource not found in this account.
+        '409':
+          description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '429':
+          description: Retry request rate limit exceeded.
+        '500':
+          $ref: '#/components/responses/internal_error'
+  /api/relay-policies/retry-preferred:
+    post:
+      summary: Retry preferred permitted relay without changing policy priorities
+      tags: [Relay Policies]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RelayRetryRequest'}
+      responses:
+        '200':
+          description: Retry preferred permitted relay without changing policy priorities
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RelayRetryResponse'}
+        '400':
+          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+        '401':
+          $ref: '#/components/responses/requires_authentication'
+        '403':
+          $ref: '#/components/responses/forbidden'
+        '404':
+          description: Resource not found in this account.
+        '409':
+          description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '429':
+          description: Retry request rate limit exceeded.
+        '500':
+          $ref: '#/components/responses/internal_error'
+  /api/relay-groups:
+    get:
+      summary: List account relay-groups with bounded pagination
+      tags: [Relay Policies]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Page size from 1 to 200; defaults to 100.
+          schema: {type: integer}
+        - name: offset
+          in: query
+          required: false
+          description: Zero-based offset; maximum 1000000.
+          schema: {type: integer}
+        - name: name
+          in: query
+          required: false
+          description: Case-insensitive name substring filter.
+          schema: {type: string}
+        - name: peer_id
+          in: query
+          required: false
+          description: Filter rules or profiles matching this account peer; valid from either pair endpoint.
+          schema: {type: string}
+      responses:
+        '200':
+          description: List account relay-groups with bounded pagination
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RelayGroupList'}
+        '400':
+          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+        '401':
+          $ref: '#/components/responses/requires_authentication'
+        '403':
+          $ref: '#/components/responses/forbidden'
+        '404':
+          description: Resource not found in this account.
+        '409':
+          description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '429':
+          description: Retry request rate limit exceeded.
+        '500':
+          $ref: '#/components/responses/internal_error'
+    post:
+      summary: Create account relay-groups; resource ID is assigned by the server
+      tags: [Relay Policies]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RelayGroupMutation'}
+      responses:
+        '200':
+          description: Create account relay-groups; resource ID is assigned by the server
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RelayPolicyConfiguration'}
+        '400':
+          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+        '401':
+          $ref: '#/components/responses/requires_authentication'
+        '403':
+          $ref: '#/components/responses/forbidden'
+        '404':
+          description: Resource not found in this account.
+        '409':
+          description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '429':
+          description: Retry request rate limit exceeded.
+        '500':
+          $ref: '#/components/responses/internal_error'
+  /api/relay-groups/{resourceId}:
+    get:
+      summary: Read an account relay-groups resource
+      tags: [Relay Policies]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      parameters:
+        - name: resourceId
+          in: path
+          required: true
+          description: Account-owned resource ID.
+          schema: {type: string}
+      responses:
+        '200':
+          description: Read an account relay-groups resource
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RelayGroup'}
+        '400':
+          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+        '401':
+          $ref: '#/components/responses/requires_authentication'
+        '403':
+          $ref: '#/components/responses/forbidden'
+        '404':
+          description: Resource not found in this account.
+        '409':
+          description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '429':
+          description: Retry request rate limit exceeded.
+        '500':
+          $ref: '#/components/responses/internal_error'
+    put:
+      summary: Update account relay-groups using optimistic revision
+      tags: [Relay Policies]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      parameters:
+        - name: resourceId
+          in: path
+          required: true
+          description: Account-owned resource ID.
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RelayGroupMutation'}
+      responses:
+        '200':
+          description: Update account relay-groups using optimistic revision
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RelayPolicyConfiguration'}
+        '400':
+          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+        '401':
+          $ref: '#/components/responses/requires_authentication'
+        '403':
+          $ref: '#/components/responses/forbidden'
+        '404':
+          description: Resource not found in this account.
+        '409':
+          description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '429':
+          description: Retry request rate limit exceeded.
+        '500':
+          $ref: '#/components/responses/internal_error'
+    delete:
+      summary: Delete unreferenced account relay-groups resource
+      tags: [Relay Policies]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      parameters:
+        - name: resourceId
+          in: path
+          required: true
+          description: Account-owned resource ID.
+          schema: {type: string}
+        - name: expected_revision
+          in: query
+          required: true
+          description: Current account relay configuration revision.
+          schema: {type: integer}
+        - name: catalog_generation
+          in: query
+          required: true
+          description: Current catalog generation.
+          schema: {type: integer}
+      responses:
+        '200':
+          description: Delete unreferenced account relay-groups resource
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RelayPolicyConfiguration'}
+        '400':
+          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+        '401':
+          $ref: '#/components/responses/requires_authentication'
+        '403':
+          $ref: '#/components/responses/forbidden'
+        '404':
+          description: Resource not found in this account.
+        '409':
+          description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '429':
+          description: Retry request rate limit exceeded.
+        '500':
+          $ref: '#/components/responses/internal_error'
+  /api/relay-home-profiles:
+    get:
+      summary: List account relay-home-profiles with bounded pagination
+      tags: [Relay Policies]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Page size from 1 to 200; defaults to 100.
+          schema: {type: integer}
+        - name: offset
+          in: query
+          required: false
+          description: Zero-based offset; maximum 1000000.
+          schema: {type: integer}
+        - name: name
+          in: query
+          required: false
+          description: Case-insensitive name substring filter.
+          schema: {type: string}
+        - name: peer_id
+          in: query
+          required: false
+          description: Filter rules or profiles matching this account peer; valid from either pair endpoint.
+          schema: {type: string}
+      responses:
+        '200':
+          description: List account relay-home-profiles with bounded pagination
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RelayHomeProfileList'}
+        '400':
+          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+        '401':
+          $ref: '#/components/responses/requires_authentication'
+        '403':
+          $ref: '#/components/responses/forbidden'
+        '404':
+          description: Resource not found in this account.
+        '409':
+          description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '429':
+          description: Retry request rate limit exceeded.
+        '500':
+          $ref: '#/components/responses/internal_error'
+    post:
+      summary: Create account relay-home-profiles; resource ID is assigned by the server
+      tags: [Relay Policies]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RelayHomeProfileMutation'}
+      responses:
+        '200':
+          description: Create account relay-home-profiles; resource ID is assigned by the server
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RelayPolicyConfiguration'}
+        '400':
+          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+        '401':
+          $ref: '#/components/responses/requires_authentication'
+        '403':
+          $ref: '#/components/responses/forbidden'
+        '404':
+          description: Resource not found in this account.
+        '409':
+          description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '429':
+          description: Retry request rate limit exceeded.
+        '500':
+          $ref: '#/components/responses/internal_error'
+  /api/relay-home-profiles/{resourceId}:
+    get:
+      summary: Read an account relay-home-profiles resource
+      tags: [Relay Policies]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      parameters:
+        - name: resourceId
+          in: path
+          required: true
+          description: Account-owned resource ID.
+          schema: {type: string}
+      responses:
+        '200':
+          description: Read an account relay-home-profiles resource
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RelayHomeProfile'}
+        '400':
+          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+        '401':
+          $ref: '#/components/responses/requires_authentication'
+        '403':
+          $ref: '#/components/responses/forbidden'
+        '404':
+          description: Resource not found in this account.
+        '409':
+          description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '429':
+          description: Retry request rate limit exceeded.
+        '500':
+          $ref: '#/components/responses/internal_error'
+    put:
+      summary: Update account relay-home-profiles using optimistic revision
+      tags: [Relay Policies]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      parameters:
+        - name: resourceId
+          in: path
+          required: true
+          description: Account-owned resource ID.
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RelayHomeProfileMutation'}
+      responses:
+        '200':
+          description: Update account relay-home-profiles using optimistic revision
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RelayPolicyConfiguration'}
+        '400':
+          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+        '401':
+          $ref: '#/components/responses/requires_authentication'
+        '403':
+          $ref: '#/components/responses/forbidden'
+        '404':
+          description: Resource not found in this account.
+        '409':
+          description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '429':
+          description: Retry request rate limit exceeded.
+        '500':
+          $ref: '#/components/responses/internal_error'
+    delete:
+      summary: Delete unreferenced account relay-home-profiles resource
+      tags: [Relay Policies]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      parameters:
+        - name: resourceId
+          in: path
+          required: true
+          description: Account-owned resource ID.
+          schema: {type: string}
+        - name: expected_revision
+          in: query
+          required: true
+          description: Current account relay configuration revision.
+          schema: {type: integer}
+        - name: catalog_generation
+          in: query
+          required: true
+          description: Current catalog generation.
+          schema: {type: integer}
+      responses:
+        '200':
+          description: Delete unreferenced account relay-home-profiles resource
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RelayPolicyConfiguration'}
+        '400':
+          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+        '401':
+          $ref: '#/components/responses/requires_authentication'
+        '403':
+          $ref: '#/components/responses/forbidden'
+        '404':
+          description: Resource not found in this account.
+        '409':
+          description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '429':
+          description: Retry request rate limit exceeded.
+        '500':
+          $ref: '#/components/responses/internal_error'
+  /api/relay-pair-policies:
+    get:
+      summary: List account relay-pair-policies with bounded pagination
+      tags: [Relay Policies]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Page size from 1 to 200; defaults to 100.
+          schema: {type: integer}
+        - name: offset
+          in: query
+          required: false
+          description: Zero-based offset; maximum 1000000.
+          schema: {type: integer}
+        - name: name
+          in: query
+          required: false
+          description: Case-insensitive name substring filter.
+          schema: {type: string}
+        - name: peer_id
+          in: query
+          required: false
+          description: Filter rules or profiles matching this account peer; valid from either pair endpoint.
+          schema: {type: string}
+      responses:
+        '200':
+          description: List account relay-pair-policies with bounded pagination
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RelayPairPolicyList'}
+        '400':
+          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+        '401':
+          $ref: '#/components/responses/requires_authentication'
+        '403':
+          $ref: '#/components/responses/forbidden'
+        '404':
+          description: Resource not found in this account.
+        '409':
+          description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '429':
+          description: Retry request rate limit exceeded.
+        '500':
+          $ref: '#/components/responses/internal_error'
+    post:
+      summary: Create account relay-pair-policies; resource ID is assigned by the server
+      tags: [Relay Policies]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RelayPairPolicyMutation'}
+      responses:
+        '200':
+          description: Create account relay-pair-policies; resource ID is assigned by the server
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RelayPolicyConfiguration'}
+        '400':
+          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+        '401':
+          $ref: '#/components/responses/requires_authentication'
+        '403':
+          $ref: '#/components/responses/forbidden'
+        '404':
+          description: Resource not found in this account.
+        '409':
+          description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '429':
+          description: Retry request rate limit exceeded.
+        '500':
+          $ref: '#/components/responses/internal_error'
+  /api/relay-pair-policies/{resourceId}:
+    get:
+      summary: Read an account relay-pair-policies resource
+      tags: [Relay Policies]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      parameters:
+        - name: resourceId
+          in: path
+          required: true
+          description: Account-owned resource ID.
+          schema: {type: string}
+      responses:
+        '200':
+          description: Read an account relay-pair-policies resource
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RelayPairPolicy'}
+        '400':
+          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+        '401':
+          $ref: '#/components/responses/requires_authentication'
+        '403':
+          $ref: '#/components/responses/forbidden'
+        '404':
+          description: Resource not found in this account.
+        '409':
+          description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '429':
+          description: Retry request rate limit exceeded.
+        '500':
+          $ref: '#/components/responses/internal_error'
+    put:
+      summary: Update account relay-pair-policies using optimistic revision
+      tags: [Relay Policies]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      parameters:
+        - name: resourceId
+          in: path
+          required: true
+          description: Account-owned resource ID.
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RelayPairPolicyMutation'}
+      responses:
+        '200':
+          description: Update account relay-pair-policies using optimistic revision
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RelayPolicyConfiguration'}
+        '400':
+          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+        '401':
+          $ref: '#/components/responses/requires_authentication'
+        '403':
+          $ref: '#/components/responses/forbidden'
+        '404':
+          description: Resource not found in this account.
+        '409':
+          description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '429':
+          description: Retry request rate limit exceeded.
+        '500':
+          $ref: '#/components/responses/internal_error'
+    delete:
+      summary: Delete unreferenced account relay-pair-policies resource
+      tags: [Relay Policies]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      parameters:
+        - name: resourceId
+          in: path
+          required: true
+          description: Account-owned resource ID.
+          schema: {type: string}
+        - name: expected_revision
+          in: query
+          required: true
+          description: Current account relay configuration revision.
+          schema: {type: integer}
+        - name: catalog_generation
+          in: query
+          required: true
+          description: Current catalog generation.
+          schema: {type: integer}
+      responses:
+        '200':
+          description: Delete unreferenced account relay-pair-policies resource
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RelayPolicyConfiguration'}
+        '400':
+          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+        '401':
+          $ref: '#/components/responses/requires_authentication'
+        '403':
+          $ref: '#/components/responses/forbidden'
+        '404':
+          description: Resource not found in this account.
+        '409':
+          description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '429':
+          description: Retry request rate limit exceeded.
+        '500':
+          $ref: '#/components/responses/internal_error'
   /api/instance:
     get:
       summary: Get Instance Status

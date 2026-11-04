@@ -66,6 +66,9 @@ type Client struct {
 	// see more: https://docs.netbird.io/api/resources/policies
 	Policies *PoliciesAPI
 
+	// RelayPolicies administers account relay groups, home profiles and pair transport policies.
+	RelayPolicies *RelayPoliciesAPI
+
 	// PostureChecks NetBird posture checks APIs
 	// see more: https://docs.netbird.io/api/resources/posture-checks
 	PostureChecks *PostureChecksAPI
@@ -187,6 +190,7 @@ func (c *Client) initialize() {
 	c.SetupKeys = &SetupKeysAPI{c}
 	c.Groups = &GroupsAPI{c}
 	c.Policies = &PoliciesAPI{c}
+	c.RelayPolicies = &RelayPoliciesAPI{c}
 	c.PostureChecks = &PostureChecksAPI{c}
 	c.Networks = &NetworksAPI{c}
 	c.Routes = &RoutesAPI{c}

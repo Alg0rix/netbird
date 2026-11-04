@@ -291,11 +291,17 @@ const (
 	AccountPeerHostnameCollisionRejectionEnabled Activity = 144
 	// AccountPeerHostnameCollisionRejectionDisabled indicates that a user disabled rejecting peer hostname collisions for the account
 	AccountPeerHostnameCollisionRejectionDisabled Activity = 145
+	// RelayConfigurationUpdated indicates a committed relay configuration mutation.
+	RelayConfigurationUpdated Activity = 146
+	// RelayPreferredRetryRequested indicates an explicit, targeted relay retry.
+	RelayPreferredRetryRequested Activity = 147
 
 	AccountDeleted Activity = 99999
 )
 
 var activityMap = map[Activity]Code{
+	RelayConfigurationUpdated:                {"Relay configuration updated", "relay.configuration.update"},
+	RelayPreferredRetryRequested:             {"Preferred relay retry requested", "relay.preferred.retry"},
 	PeerAddedByUser:                          {"Peer added", "peer.user.add"},
 	PeerAddedWithSetupKey:                    {"Peer added", "peer.setupkey.add"},
 	UserJoined:                               {"User joined", "user.join"},

@@ -896,6 +896,24 @@ func (e ProxyClusterType) Valid() bool {
 	}
 }
 
+// Defines values for RelayEffectivePolicyState.
+const (
+	RelayEffectivePolicyStateBlocked RelayEffectivePolicyState = "blocked"
+	RelayEffectivePolicyStateReady   RelayEffectivePolicyState = "ready"
+)
+
+// Valid indicates whether the value is a known member of the RelayEffectivePolicyState enum.
+func (e RelayEffectivePolicyState) Valid() bool {
+	switch e {
+	case RelayEffectivePolicyStateBlocked:
+		return true
+	case RelayEffectivePolicyStateReady:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ResourceType.
 const (
 	ResourceTypeDomain ResourceType = "domain"
@@ -4831,6 +4849,202 @@ type ProxyTokenRequest struct {
 	Name string `json:"name"`
 }
 
+// RelayCatalogItem defines model for RelayCatalogItem.
+type RelayCatalogItem struct {
+	Active           bool     `json:"active"`
+	Aliases          []string `json:"aliases"`
+	Endpoint         string   `json:"endpoint"`
+	Id               string   `json:"id"`
+	InstanceEndpoint string   `json:"instance_endpoint"`
+
+	// Legacy Legacy advertisements cannot be referenced by managed policies.
+	Legacy bool `json:"legacy"`
+}
+
+// RelayCatalogResponse defines model for RelayCatalogResponse.
+type RelayCatalogResponse struct {
+	Entries    []RelayCatalogItem `json:"entries"`
+	Generation uint64             `json:"generation"`
+}
+
+// RelayConstraints defines model for RelayConstraints.
+type RelayConstraints struct {
+	Allow       *RelaySelection  `json:"allow,omitempty"`
+	Exclude     RelaySelection   `json:"exclude"`
+	ForceRelay  bool             `json:"force_relay"`
+	Preferences []RelaySelection `json:"preferences"`
+}
+
+// RelayEffectivePolicy defines model for RelayEffectivePolicy.
+type RelayEffectivePolicy struct {
+	CatalogGeneration     uint64                    `json:"catalog_generation"`
+	Contributors          []RelayPolicyContribution `json:"contributors"`
+	Digest                string                    `json:"digest"`
+	Eliminated            []string                  `json:"eliminated"`
+	ForceRelay            bool                      `json:"force_relay"`
+	PreferenceRule        string                    `json:"preference_rule"`
+	ReselectionGeneration uint64                    `json:"reselection_generation"`
+	Revision              uint64                    `json:"revision"`
+	State                 RelayEffectivePolicyState `json:"state"`
+	Tiers                 [][]RelayCatalogItem      `json:"tiers"`
+}
+
+// RelayEffectivePolicyState defines model for RelayEffectivePolicy.State.
+type RelayEffectivePolicyState string
+
+// RelayEffectiveResponse defines model for RelayEffectiveResponse.
+type RelayEffectiveResponse struct {
+	Policy *RelayEffectivePolicy `json:"policy,omitempty"`
+}
+
+// RelayGroup defines model for RelayGroup.
+type RelayGroup struct {
+	Id       string   `json:"id"`
+	Name     string   `json:"name"`
+	RelayIds []string `json:"relay_ids"`
+	Revision *uint64  `json:"revision,omitempty"`
+}
+
+// RelayGroupList defines model for RelayGroupList.
+type RelayGroupList struct {
+	CatalogGeneration uint64       `json:"catalog_generation"`
+	Items             []RelayGroup `json:"items"`
+	Revision          uint64       `json:"revision"`
+	Total             int          `json:"total"`
+}
+
+// RelayGroupMutation defines model for RelayGroupMutation.
+type RelayGroupMutation struct {
+	CatalogGeneration uint64     `json:"catalog_generation"`
+	ExpectedRevision  uint64     `json:"expected_revision"`
+	Resource          RelayGroup `json:"resource"`
+}
+
+// RelayHomePreview defines model for RelayHomePreview.
+type RelayHomePreview struct {
+	PeerId      string                `json:"peer_id"`
+	Policy      *RelayEffectivePolicy `json:"policy,omitempty"`
+	Unsupported bool                  `json:"unsupported"`
+}
+
+// RelayHomeProfile defines model for RelayHomeProfile.
+type RelayHomeProfile struct {
+	Constraints RelayConstraints  `json:"constraints"`
+	Enabled     bool              `json:"enabled"`
+	Id          string            `json:"id"`
+	Name        string            `json:"name"`
+	Priority    uint32            `json:"priority"`
+	Revision    *uint64           `json:"revision,omitempty"`
+	Selector    RelayPeerSelector `json:"selector"`
+}
+
+// RelayHomeProfileList defines model for RelayHomeProfileList.
+type RelayHomeProfileList struct {
+	CatalogGeneration uint64             `json:"catalog_generation"`
+	Items             []RelayHomeProfile `json:"items"`
+	Revision          uint64             `json:"revision"`
+	Total             int                `json:"total"`
+}
+
+// RelayHomeProfileMutation defines model for RelayHomeProfileMutation.
+type RelayHomeProfileMutation struct {
+	CatalogGeneration uint64           `json:"catalog_generation"`
+	ExpectedRevision  uint64           `json:"expected_revision"`
+	Resource          RelayHomeProfile `json:"resource"`
+}
+
+// RelayPairPolicy defines model for RelayPairPolicy.
+type RelayPairPolicy struct {
+	Constraints RelayConstraints  `json:"constraints"`
+	Destination RelayPeerSelector `json:"destination"`
+	Enabled     bool              `json:"enabled"`
+	Id          string            `json:"id"`
+	Name        string            `json:"name"`
+	Priority    uint32            `json:"priority"`
+	Revision    *uint64           `json:"revision,omitempty"`
+	Source      RelayPeerSelector `json:"source"`
+}
+
+// RelayPairPolicyList defines model for RelayPairPolicyList.
+type RelayPairPolicyList struct {
+	CatalogGeneration uint64            `json:"catalog_generation"`
+	Items             []RelayPairPolicy `json:"items"`
+	Revision          uint64            `json:"revision"`
+	Total             int               `json:"total"`
+}
+
+// RelayPairPolicyMutation defines model for RelayPairPolicyMutation.
+type RelayPairPolicyMutation struct {
+	CatalogGeneration uint64          `json:"catalog_generation"`
+	ExpectedRevision  uint64          `json:"expected_revision"`
+	Resource          RelayPairPolicy `json:"resource"`
+}
+
+// RelayPairPreview defines model for RelayPairPreview.
+type RelayPairPreview struct {
+	PeerA       string                `json:"peer_a"`
+	PeerB       string                `json:"peer_b"`
+	Policy      *RelayEffectivePolicy `json:"policy,omitempty"`
+	Unsupported bool                  `json:"unsupported"`
+}
+
+// RelayPeerSelector defines model for RelayPeerSelector.
+type RelayPeerSelector struct {
+	GroupIds []string `json:"group_ids"`
+	PeerIds  []string `json:"peer_ids"`
+}
+
+// RelayPolicyConfiguration defines model for RelayPolicyConfiguration.
+type RelayPolicyConfiguration struct {
+	CatalogGeneration uint64             `json:"catalog_generation"`
+	Groups            []RelayGroup       `json:"groups"`
+	HomeProfiles      []RelayHomeProfile `json:"home_profiles"`
+	PairPolicies      []RelayPairPolicy  `json:"pair_policies"`
+	Revision          uint64             `json:"revision"`
+
+	// Supported Server supports relay policy administration.
+	Supported bool `json:"supported"`
+}
+
+// RelayPolicyContribution defines model for RelayPolicyContribution.
+type RelayPolicyContribution struct {
+	Eliminated []string `json:"eliminated"`
+	Id         string   `json:"id"`
+	Revision   uint64   `json:"revision"`
+}
+
+// RelayPolicyPreview defines model for RelayPolicyPreview.
+type RelayPolicyPreview struct {
+	CatalogGeneration uint64             `json:"catalog_generation"`
+	Home              []RelayHomePreview `json:"home"`
+	Pairs             []RelayPairPreview `json:"pairs"`
+	Revision          uint64             `json:"revision"`
+
+	// Truncated Preview exceeded its bounded result count; narrow the target scope.
+	Truncated bool `json:"truncated"`
+}
+
+// RelayRetryRequest defines model for RelayRetryRequest.
+type RelayRetryRequest struct {
+	ExpectedDigest string `json:"expected_digest"`
+	PeerA          string `json:"peer_a"`
+
+	// PeerB Omit for home registration retry.
+	PeerB *string `json:"peer_b,omitempty"`
+}
+
+// RelayRetryResponse defines model for RelayRetryResponse.
+type RelayRetryResponse struct {
+	Generation uint64                `json:"generation"`
+	Policy     *RelayEffectivePolicy `json:"policy,omitempty"`
+}
+
+// RelaySelection defines model for RelaySelection.
+type RelaySelection struct {
+	GroupIds []string `json:"group_ids"`
+	RelayIds []string `json:"relay_ids"`
+}
+
 // Resource defines model for Resource.
 type Resource struct {
 	// Id ID of the resource
@@ -6178,6 +6392,87 @@ type GetApiPeersParams struct {
 	Mac *string `form:"mac,omitempty" json:"mac,omitempty"`
 }
 
+// GetApiRelayGroupsParams defines parameters for GetApiRelayGroups.
+type GetApiRelayGroupsParams struct {
+	// Limit Page size from 1 to 200; defaults to 100.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset Zero-based offset; maximum 1000000.
+	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// Name Case-insensitive name substring filter.
+	Name *string `form:"name,omitempty" json:"name,omitempty"`
+
+	// PeerId Filter rules or profiles matching this account peer; valid from either pair endpoint.
+	PeerId *string `form:"peer_id,omitempty" json:"peer_id,omitempty"`
+}
+
+// DeleteApiRelayGroupsResourceIdParams defines parameters for DeleteApiRelayGroupsResourceId.
+type DeleteApiRelayGroupsResourceIdParams struct {
+	// ExpectedRevision Current account relay configuration revision.
+	ExpectedRevision int `form:"expected_revision" json:"expected_revision"`
+
+	// CatalogGeneration Current catalog generation.
+	CatalogGeneration int `form:"catalog_generation" json:"catalog_generation"`
+}
+
+// GetApiRelayHomeProfilesParams defines parameters for GetApiRelayHomeProfiles.
+type GetApiRelayHomeProfilesParams struct {
+	// Limit Page size from 1 to 200; defaults to 100.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset Zero-based offset; maximum 1000000.
+	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// Name Case-insensitive name substring filter.
+	Name *string `form:"name,omitempty" json:"name,omitempty"`
+
+	// PeerId Filter rules or profiles matching this account peer; valid from either pair endpoint.
+	PeerId *string `form:"peer_id,omitempty" json:"peer_id,omitempty"`
+}
+
+// DeleteApiRelayHomeProfilesResourceIdParams defines parameters for DeleteApiRelayHomeProfilesResourceId.
+type DeleteApiRelayHomeProfilesResourceIdParams struct {
+	// ExpectedRevision Current account relay configuration revision.
+	ExpectedRevision int `form:"expected_revision" json:"expected_revision"`
+
+	// CatalogGeneration Current catalog generation.
+	CatalogGeneration int `form:"catalog_generation" json:"catalog_generation"`
+}
+
+// GetApiRelayPairPoliciesParams defines parameters for GetApiRelayPairPolicies.
+type GetApiRelayPairPoliciesParams struct {
+	// Limit Page size from 1 to 200; defaults to 100.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset Zero-based offset; maximum 1000000.
+	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// Name Case-insensitive name substring filter.
+	Name *string `form:"name,omitempty" json:"name,omitempty"`
+
+	// PeerId Filter rules or profiles matching this account peer; valid from either pair endpoint.
+	PeerId *string `form:"peer_id,omitempty" json:"peer_id,omitempty"`
+}
+
+// DeleteApiRelayPairPoliciesResourceIdParams defines parameters for DeleteApiRelayPairPoliciesResourceId.
+type DeleteApiRelayPairPoliciesResourceIdParams struct {
+	// ExpectedRevision Current account relay configuration revision.
+	ExpectedRevision int `form:"expected_revision" json:"expected_revision"`
+
+	// CatalogGeneration Current catalog generation.
+	CatalogGeneration int `form:"catalog_generation" json:"catalog_generation"`
+}
+
+// GetApiRelayPoliciesEffectiveParams defines parameters for GetApiRelayPoliciesEffective.
+type GetApiRelayPoliciesEffectiveParams struct {
+	// PeerA Local or remote account peer ID.
+	PeerA string `form:"peer_a" json:"peer_a"`
+
+	// PeerB Other peer ID; omit for home scope. Pair orientation is irrelevant.
+	PeerB *string `form:"peer_b,omitempty" json:"peer_b,omitempty"`
+}
+
 // GetApiUsersParams defines parameters for GetApiUsers.
 type GetApiUsersParams struct {
 	// ServiceUser Filters users and returns either regular users or service users
@@ -6384,6 +6679,33 @@ type PostApiPostureChecksJSONRequestBody = PostureCheckUpdate
 
 // PutApiPostureChecksPostureCheckIdJSONRequestBody defines body for PutApiPostureChecksPostureCheckId for application/json ContentType.
 type PutApiPostureChecksPostureCheckIdJSONRequestBody = PostureCheckUpdate
+
+// PostApiRelayGroupsJSONRequestBody defines body for PostApiRelayGroups for application/json ContentType.
+type PostApiRelayGroupsJSONRequestBody = RelayGroupMutation
+
+// PutApiRelayGroupsResourceIdJSONRequestBody defines body for PutApiRelayGroupsResourceId for application/json ContentType.
+type PutApiRelayGroupsResourceIdJSONRequestBody = RelayGroupMutation
+
+// PostApiRelayHomeProfilesJSONRequestBody defines body for PostApiRelayHomeProfiles for application/json ContentType.
+type PostApiRelayHomeProfilesJSONRequestBody = RelayHomeProfileMutation
+
+// PutApiRelayHomeProfilesResourceIdJSONRequestBody defines body for PutApiRelayHomeProfilesResourceId for application/json ContentType.
+type PutApiRelayHomeProfilesResourceIdJSONRequestBody = RelayHomeProfileMutation
+
+// PostApiRelayPairPoliciesJSONRequestBody defines body for PostApiRelayPairPolicies for application/json ContentType.
+type PostApiRelayPairPoliciesJSONRequestBody = RelayPairPolicyMutation
+
+// PutApiRelayPairPoliciesResourceIdJSONRequestBody defines body for PutApiRelayPairPoliciesResourceId for application/json ContentType.
+type PutApiRelayPairPoliciesResourceIdJSONRequestBody = RelayPairPolicyMutation
+
+// PutApiRelayPoliciesConfigurationJSONRequestBody defines body for PutApiRelayPoliciesConfiguration for application/json ContentType.
+type PutApiRelayPoliciesConfigurationJSONRequestBody = RelayPolicyConfiguration
+
+// PostApiRelayPoliciesPreviewJSONRequestBody defines body for PostApiRelayPoliciesPreview for application/json ContentType.
+type PostApiRelayPoliciesPreviewJSONRequestBody = RelayPolicyConfiguration
+
+// PostApiRelayPoliciesRetryPreferredJSONRequestBody defines body for PostApiRelayPoliciesRetryPreferred for application/json ContentType.
+type PostApiRelayPoliciesRetryPreferredJSONRequestBody = RelayRetryRequest
 
 // PostApiReverseProxiesDomainsJSONRequestBody defines body for PostApiReverseProxiesDomains for application/json ContentType.
 type PostApiReverseProxiesDomainsJSONRequestBody = ReverseProxyDomainRequest

@@ -1,6 +1,9 @@
 package relaypolicy
 
-import "slices"
+import (
+	"slices"
+	"time"
+)
 
 // RelayAccountState provides optimistic concurrency independently of the network serial.
 type RelayAccountState struct {
@@ -11,10 +14,11 @@ type RelayAccountState struct {
 // RelayReselection persists a targeted, monotonic home or unordered-pair retry directive.
 // PeerB is empty for home registration, otherwise PeerA sorts before PeerB.
 type RelayReselection struct {
-	AccountID  AccountID `gorm:"primaryKey"`
-	PeerA      PeerID    `gorm:"primaryKey;autoIncrement:false"`
-	PeerB      PeerID    `gorm:"primaryKey;autoIncrement:false"`
-	Generation uint64
+	AccountID       AccountID `gorm:"primaryKey"`
+	PeerA           PeerID    `gorm:"primaryKey;autoIncrement:false"`
+	PeerB           PeerID    `gorm:"primaryKey;autoIncrement:false"`
+	Generation      uint64
+	LastRequestedAt time.Time
 }
 
 // Configuration contains account-owned configuration, without catalog publication or peers.

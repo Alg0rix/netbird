@@ -344,11 +344,14 @@ func (s *snapshot) resolve(rules []rule, peers []types.PeerID, options ResolveOp
 		break
 	}
 	result.Tiers = s.appendTier(result.Tiers, permitted, permitted)
+	// Account edits still need acknowledgment but must not reconnect unrelated pairs.
+	digestPolicy := *result
+	digestPolicy.Revision = 0
 	payload, err := json.Marshal(struct {
 		AccountID types.AccountID
 		Peers     []types.PeerID
 		Policy    *types.ResolvedRelayPolicy
-	}{s.input.AccountID, peers, result})
+	}{s.input.AccountID, peers, &digestPolicy})
 	if err != nil {
 		return nil, fmt.Errorf("encode resolved relay policy: %w", err)
 	}

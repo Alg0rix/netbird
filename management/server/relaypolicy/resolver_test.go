@@ -166,6 +166,11 @@ func TestDigestFencesAndCopies(t *testing.T) {
 	input := fixture()
 	before, err := ResolvePair(input, "x", "y", ResolveOptions{})
 	require.NoError(t, err)
+	input.Revision++
+	unchanged, err := ResolvePair(input, "x", "y", ResolveOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, before.Digest, unchanged.Digest, "unrelated account revisions require acknowledgment without reconnecting this pair")
+	assert.NotEqual(t, before.Revision, unchanged.Revision, "desired configuration revision still advances independently")
 	after, err := ResolvePair(input, "x", "y", ResolveOptions{ReselectionGeneration: 1})
 	require.NoError(t, err)
 	assert.NotEqual(t, before.Digest, after.Digest, "targeted retry must invalidate prior negotiation")

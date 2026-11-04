@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/netbirdio/netbird/shared/management/relaypolicy"
 )
@@ -102,10 +103,14 @@ func ReadSnapshot(ctx context.Context, query Query, accountID relaypolicy.Accoun
 	}); err != nil {
 		return snapshot, err
 	}
-	if err := each(ctx, query, `SELECT account_id, peer_a, peer_b, generation FROM relay_reselections WHERE account_id = $1 ORDER BY peer_a, peer_b`, args, func(rows Rows) error {
+	if err := each(ctx, query, `SELECT account_id, peer_a, peer_b, generation, last_requested_at FROM relay_reselections WHERE account_id = $1 ORDER BY peer_a, peer_b`, args, func(rows Rows) error {
 		var directive relaypolicy.RelayReselection
-		if err := rows.Scan(&directive.AccountID, &directive.PeerA, &directive.PeerB, &directive.Generation); err != nil {
+		var requestedAt *time.Time
+		if err := rows.Scan(&directive.AccountID, &directive.PeerA, &directive.PeerB, &directive.Generation, &requestedAt); err != nil {
 			return err
+		}
+		if requestedAt != nil {
+			directive.LastRequestedAt = *requestedAt
 		}
 		snapshot.Reselections = append(snapshot.Reselections, directive)
 		return nil

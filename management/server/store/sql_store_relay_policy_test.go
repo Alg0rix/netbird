@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -115,6 +116,10 @@ func TestRelayRetryAndPeerLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	first, err := s.AdvanceRelayReselection(ctx, "relay-account", "y", "x", 1)
 	require.NoError(t, err)
+	_, err = s.AdvanceRelayReselection(ctx, "relay-account", "x", "y", 1)
+	assert.Error(t, err, "opposite pair orientation must share the persisted retry rate limit")
+	require.NoError(t, s.db.Model(&types.RelayReselection{}).Where("account_id = ?", "relay-account").
+		Update("last_requested_at", time.Now().Add(-2*RelayRetryMinimumInterval)).Error)
 	second, err := s.AdvanceRelayReselection(ctx, "relay-account", "x", "y", 1)
 	require.NoError(t, err)
 	assert.Equal(t, first+1, second, "both pair orientations share one monotonic retry directive")
