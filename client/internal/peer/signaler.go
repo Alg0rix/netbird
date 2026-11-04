@@ -53,7 +53,7 @@ func (s *Signaler) Ready() bool {
 
 // SignalOfferAnswer signals either an offer or an answer to remote peer
 func (s *Signaler) signalOfferAnswer(offerAnswer OfferAnswer, remoteKey string, bodyType sProto.Body_Type) error {
-	return s.signalOfferAnswerContext(nil, offerAnswer, remoteKey, bodyType)
+	return s.signalOfferAnswerContext(context.Background(), offerAnswer, remoteKey, bodyType)
 }
 
 func (s *Signaler) signalOfferAnswerContext(ctx context.Context, offerAnswer OfferAnswer, remoteKey string, bodyType sProto.Body_Type) error {
