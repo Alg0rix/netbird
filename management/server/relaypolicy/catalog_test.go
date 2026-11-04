@@ -55,3 +55,11 @@ func TestBootstrapRequiresExplicitApproval(t *testing.T) {
 	assert.Len(t, approved.Entries, 1, "explicit approval replaces rather than duplicates a legacy address")
 	assert.False(t, approved.Entries[0].Legacy, "explicit stable identity is eligible for account policies")
 }
+
+func TestLegacyAdvertisementDoesNotRequireManagedCanonicalURLs(t *testing.T) {
+	catalog, err := BootstrapCatalog([]string{"rels://legacy.example:443/", "rels://valid.example:443"}, nil)
+	require.NoError(t, err)
+	assert.Len(t, catalog.Entries, 1, "legacy noncanonical addresses remain outside managed policy without blocking startup")
+	_, err = BootstrapCatalog(nil, []types.RelayCatalogEntry{{ID: "explicit", Endpoint: "rels://legacy.example:443/", Active: true}})
+	assert.Error(t, err)
+}

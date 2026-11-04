@@ -137,7 +137,8 @@ func BootstrapCatalog(addresses []string, explicit []types.RelayCatalogEntry) (t
 	for _, address := range addresses {
 		endpoint, err := CanonicalEndpoint(types.RelayEndpoint(address))
 		if err != nil {
-			return catalog, err
+			// Legacy advertisement remains untouched; only managed catalog entries require canonical URLs.
+			continue
 		}
 		if _, exists := known[endpoint]; exists {
 			continue

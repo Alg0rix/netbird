@@ -15,6 +15,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/settings"
 	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
+	"github.com/netbirdio/netbird/shared/management/relaypolicy"
 )
 
 var ErrDnsUnsupportedRecordType = errors.New("unsupported record type")
@@ -52,6 +53,11 @@ type NetworkMapDBStoreConn interface { //nolint:revive // established name acros
 
 	CommitTx(ctx context.Context) error
 	RollbackTx(ctx context.Context) error
+}
+
+// RelayPolicySnapshotReader is implemented by SQL adapters that persist relay policy state.
+type RelayPolicySnapshotReader interface {
+	GetRelayPolicySnapshot(context.Context, string) (relaypolicy.Snapshot, error)
 }
 
 type NetworkMapDBStoreImpl struct { //nolint:revive // established name across the codebase

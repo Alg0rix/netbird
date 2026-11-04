@@ -30,6 +30,7 @@ func newAdminCommands() *cobra.Command {
 		IDP:       withAdminIDPOnly,
 	})
 	cmd.PersistentFlags().StringVar(&adminDatadir, "datadir", "", "Override the data directory from config (used for store.db and the default idp.db)")
+	cmd.AddCommand(newRelayCatalogCommand())
 	return cmd
 }
 

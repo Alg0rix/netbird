@@ -22,6 +22,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+	"gorm.io/gorm"
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/formatter/hook"
@@ -44,6 +45,7 @@ import (
 	nbhttp "github.com/netbirdio/netbird/management/server/http"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/management/server/relaypolicy"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/management/server/types"
@@ -109,6 +111,22 @@ func (s *BaseServer) Store() store.Store {
 		store, err := store.NewSqlStore(context.Background(), s.DBConn(), s.Metrics(), false)
 		if err != nil {
 			log.Fatalf("failed to create store: %v", err)
+		}
+		if _, err := store.GetRelayCatalog(context.Background()); errors.Is(err, gorm.ErrRecordNotFound) {
+			var addresses []string
+			var entries []types.RelayCatalogEntry
+			if s.Config.Relay != nil {
+				addresses, entries = s.Config.Relay.Addresses, s.Config.Relay.Catalog
+			}
+			catalog, err := relaypolicy.BootstrapCatalog(addresses, entries)
+			if err != nil {
+				log.Fatalf("invalid initial relay catalog: %v", err)
+			}
+			if _, err := store.InitializeRelayCatalog(context.Background(), catalog); err != nil {
+				log.Fatalf("initialize relay catalog: %v", err)
+			}
+		} else if err != nil {
+			log.Fatalf("read relay catalog: %v", err)
 		}
 
 		if s.Config.DataStoreEncryptionKey != "" {

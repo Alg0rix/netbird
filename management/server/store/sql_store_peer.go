@@ -771,7 +771,10 @@ func (s *SqlStore) DeletePeer(ctx context.Context, accountID string, peerID stri
 		if deleted == 0 {
 			return nil
 		}
-		return tx.Delete(&nbpeer.Connection{}, accountAndPeerIDQueryCondition, accountID, peerID).Error
+		if err := tx.Delete(&nbpeer.Connection{}, accountAndPeerIDQueryCondition, accountID, peerID).Error; err != nil {
+			return err
+		}
+		return deleteRelayPeerConfig(tx, accountID, peerID)
 	})
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to delete peer from the store: %s", err)

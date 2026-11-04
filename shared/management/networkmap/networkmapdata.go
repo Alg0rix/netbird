@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
+	"github.com/netbirdio/netbird/shared/management/relaypolicy"
 )
 
 // NetworkMapData is a dependency-light, slim twin of the server Account. It
@@ -12,6 +13,7 @@ import (
 // once per account; the per-peer components calculation then runs on this twin
 // with no reference back to the Account.
 type NetworkMapData struct { //nolint:revive // established name across the codebase
+	RelayPolicies    relaypolicy.Snapshot
 	Peers            map[string]*nmdata.Peer
 	Groups           map[string]*nmdata.Group
 	Policies         []*nmdata.Policy

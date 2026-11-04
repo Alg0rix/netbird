@@ -11,6 +11,7 @@ import (
 
 	"github.com/netbirdio/netbird/shared/management/networkmap"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
+	"github.com/netbirdio/netbird/shared/management/relaypolicy"
 )
 
 // GetNetworkMapData reads the network map data of the account. With a Replica
@@ -215,6 +216,14 @@ func readFromTx(ctx context.Context, tx NetworkMapDBStoreConn, accountId string,
 		return rollbackAndReturnError(ctx, tx, fmt.Errorf("failed to get proxy targeted domain resources: %w", err))
 	}
 
+	var relaySnapshot relaypolicy.Snapshot
+	if reader, ok := tx.(RelayPolicySnapshotReader); ok {
+		relaySnapshot, err = reader.GetRelayPolicySnapshot(ctx, accountId)
+		if err != nil {
+			return rollbackAndReturnError(ctx, tx, fmt.Errorf("read relay policy snapshot: %w", err))
+		}
+	}
+
 	if err = tx.CommitTx(ctx); err != nil {
 		log.WithContext(ctx).Warnf("failed to commit network map read transaction: %v", err)
 	}
@@ -223,6 +232,7 @@ func readFromTx(ctx context.Context, tx NetworkMapDBStoreConn, accountId string,
 		networkResources, policies, resourceToGroupIdx, policyToDestinationResourceIdx, policyToDestinationGroupIdx)
 
 	toret := networkmap.NetworkMapData{
+		RelayPolicies:                  relaySnapshot,
 		AccountSettings:                &acctSettings,
 		DNSSettings:                    &dnsSettings,
 		Network:                        &network,

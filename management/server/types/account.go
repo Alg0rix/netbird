@@ -72,6 +72,12 @@ type Account struct {
 	UsersG                 []User                            `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Groups                 map[string]*Group                 `gorm:"-"`
 	GroupsG                []*Group                          `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	RelayGroups            []RelayGroup                      `gorm:"foreignKey:AccountID;references:id"`
+	RelayHomeProfiles      []RelayHomeProfile                `gorm:"foreignKey:AccountID;references:id"`
+	RelayPairPolicies      []RelayPairPolicy                 `gorm:"foreignKey:AccountID;references:id"`
+	RelayReselections      []RelayReselection                `gorm:"foreignKey:AccountID;references:id"`
+	RelayState             *RelayAccountState                `gorm:"foreignKey:AccountID;references:id"`
+	RelayCatalog           *RelayCatalog                     `gorm:"-"`
 	Policies               []*Policy                         `gorm:"foreignKey:AccountID;references:id"`
 	Routes                 map[route.ID]*route.Route         `gorm:"-"`
 	RoutesG                []route.Route                     `json:"-" gorm:"foreignKey:AccountID;references:id"`
@@ -766,7 +772,20 @@ func (a *Account) Copy() *Account {
 		domains = append(domains, domain.Copy())
 	}
 
+	relay := a.RelaySnapshot().Copy()
+	var relayCatalog *RelayCatalog
+	if a.RelayCatalog != nil {
+		relayCatalog = &relay.Catalog
+	}
+	var relayState *RelayAccountState
+	if a.RelayState != nil {
+		state := *a.RelayState
+		relayState = &state
+	}
 	return &Account{
+		RelayGroups: relay.Groups, RelayHomeProfiles: relay.Profiles,
+		RelayPairPolicies: relay.Policies, RelayReselections: relay.Reselections,
+		RelayState: relayState, RelayCatalog: relayCatalog,
 		Id:                     a.Id,
 		CreatedBy:              a.CreatedBy,
 		CreatedAt:              a.CreatedAt,

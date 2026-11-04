@@ -174,6 +174,10 @@ func (s *SqlStore) DeleteAccount(ctx context.Context, account *types.Account) er
 			return result.Error
 		}
 
+		if err := deleteRelayAccountConfig(tx, account.Id); err != nil {
+			return err
+		}
+
 		if err := deleteAgentNetworkAccountConfig(tx, account.Id); err != nil {
 			return err
 		}
@@ -325,10 +329,19 @@ func (s *SqlStore) GetAccountMeta(ctx context.Context, lockStrength LockingStren
 }
 
 func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*types.Account, error) {
-	if s.pgxPool() != nil {
-		return s.getAccountPgx(ctx, accountID)
+	for range 3 {
+		var account *types.Account
+		var err error
+		if s.pgxPool() != nil {
+			account, err = s.getAccountPgx(ctx, accountID)
+		} else {
+			account, err = s.getAccountGorm(ctx, accountID)
+		}
+		if !errors.Is(err, errRelayAccountSnapshotChanged) {
+			return account, err
+		}
 	}
-	return s.getAccountGorm(ctx, accountID)
+	return nil, errRelayAccountSnapshotChanged
 }
 
 func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types.Account, error) {
@@ -358,6 +371,9 @@ func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types
 	indexGroups(account)
 	indexRoutes(account)
 	indexNameServerGroups(account)
+	if err := s.attachRelayAccountSnapshot(ctx, account, false); err != nil {
+		return nil, err
+	}
 	return account, nil
 }
 
@@ -367,6 +383,11 @@ func (s *SqlStore) preloadAccountGorm(ctx context.Context, accountID string) (*t
 	result := s.db.Model(&account).
 		Preload("UsersG.PATsG"). // have to be specified as this is nested reference
 		Preload("Policies.Rules").
+		Preload("RelayGroups").
+		Preload("RelayHomeProfiles").
+		Preload("RelayPairPolicies").
+		Preload("RelayReselections").
+		Preload("RelayState").
 		Preload("SetupKeysG").
 		Preload("PeersG").
 		Preload("UsersG").
@@ -780,7 +801,33 @@ func (s *SqlStore) getAccountPgx(ctx context.Context, accountID string) (*types.
 	account.RoutesG = nil
 	account.NameServerGroupsG = nil
 
+	if err := s.attachRelayAccountSnapshot(ctx, account, true); err != nil {
+		return nil, err
+	}
 	return account, nil
+}
+
+var errRelayAccountSnapshotChanged = errors.New("account serial changed while reading relay policy snapshot")
+
+func (s *SqlStore) attachRelayAccountSnapshot(ctx context.Context, account *types.Account, native bool) error {
+	snapshot, err := s.getRelaySnapshotForAccount(ctx, types.AccountID(account.Id), native)
+	if err != nil {
+		return err
+	}
+	if account.Network != nil && account.Network.Serial != snapshot.NetworkSerial {
+		return errRelayAccountSnapshotChanged
+	}
+	account.RelayGroups, account.RelayHomeProfiles, account.RelayPairPolicies = snapshot.Groups, snapshot.Profiles, snapshot.Policies
+	account.RelayReselections = snapshot.Reselections
+	account.RelayState = nil
+	if snapshot.Revision != 0 {
+		account.RelayState = &types.RelayAccountState{AccountID: types.AccountID(account.Id), Revision: snapshot.Revision}
+	}
+	account.RelayCatalog = nil
+	if snapshot.Catalog.Generation != 0 {
+		account.RelayCatalog = &snapshot.Catalog
+	}
+	return nil
 }
 
 func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Account, error) {

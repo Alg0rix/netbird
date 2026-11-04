@@ -27,6 +27,7 @@ func (a *Account) toNetworkMapData(
 	groupIDToUserIDs map[string][]string,
 ) *networkmap.NetworkMapData {
 	nmd := &networkmap.NetworkMapData{
+		RelayPolicies:             a.RelaySnapshot().Copy(),
 		Peers:                     make(map[string]*nmdata.Peer, len(a.Peers)),
 		Groups:                    make(map[string]*nmdata.Group, len(a.Groups)),
 		Policies:                  make([]*nmdata.Policy, 0, len(a.Policies)),
