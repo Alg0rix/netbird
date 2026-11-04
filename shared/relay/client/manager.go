@@ -303,29 +303,6 @@ func (m *Manager) openConnVia(ctx context.Context, serverAddress, peerKey string
 	return reg.OpenConn(ctx, peerKey)
 }
 
-// openConnOnTrack opens a peer connection through an existing relay track,
-// waiting for the dial started by another openConnVia call to finish. It waits
-// on rt.ready rather than the track lock, so it neither holds nor contends the
-// track lock across the dial.
-func (m *Manager) openConnOnTrack(ctx context.Context, rt *RelayTrack, peerKey string) (*Conn, error) {
-	select {
-	case <-rt.ready:
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-
-	rt.RLock()
-	client, err := rt.relayClient, rt.err
-	rt.RUnlock()
-	if err != nil {
-		return nil, err
-	}
-	if client == nil {
-		return nil, ErrRelayClientNotConnected
-	}
-	return client.OpenConn(ctx, peerKey)
-}
-
 func (m *Manager) onServerConnected() {
 	m.listenerLock.Lock()
 	defer m.listenerLock.Unlock()
@@ -375,20 +352,6 @@ func (m *Manager) evictForeignRelay(serverAddress string) {
 	log.Debugf("evicted disconnected foreign relay client: %s", serverAddress)
 }
 
-func (m *Manager) listenGuardEvent(ctx context.Context) {
-	for {
-		select {
-		case <-m.reconnectGuard.OnReconnected:
-			m.onServerConnected()
-		case rc := <-m.reconnectGuard.OnNewRelayClient:
-			m.storeClient(rc)
-			m.onServerConnected()
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
 func (m *Manager) storeClient(client *Client) {
 	m.relayClientMu.Lock()
 	old := m.relayClient
@@ -397,14 +360,6 @@ func (m *Manager) storeClient(client *Client) {
 	if old != nil {
 		m.releasePickerClient(old)
 	}
-}
-
-func (m *Manager) isForeignServer(homeClient *Client, address string) (bool, error) {
-	rAddr, err := homeClient.ServerInstanceURL()
-	if err != nil {
-		return false, fmt.Errorf("relay client not connected")
-	}
-	return rAddr != address, nil
 }
 
 func (m *Manager) startCleanupLoop() {

@@ -65,7 +65,7 @@ func TestWGWatcher_CheckSuccessCallback(t *testing.T) {
 
 	firstHandshake := make(chan struct{}, 1)
 	checkSuccess := make(chan struct{}, 1)
-	go watcher.EnableWgWatcher(ctx, time.Now(), func() {}, func(when time.Time) {
+	done := runTestWGWatcher(ctx, watcher, time.Now(), func() {}, func(when time.Time) {
 		firstHandshake <- struct{}{}
 	}, func() {
 		select {
@@ -74,6 +74,10 @@ func TestWGWatcher_CheckSuccessCallback(t *testing.T) {
 		}
 	})
 
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
 	stats.advance()
 
 	select {
@@ -103,13 +107,17 @@ func TestWGWatcher_EnableWgWatcher(t *testing.T) {
 	watcher.PrepareInitialHandshake()
 
 	onDisconnected := make(chan struct{}, 1)
-	go watcher.EnableWgWatcher(ctx, time.Now(), func() {
+	done := runTestWGWatcher(ctx, watcher, time.Now(), func() {
 		mlog.Infof("onDisconnectedFn")
 		onDisconnected <- struct{}{}
 	}, func(when time.Time) {
 		mlog.Infof("onHandshakeSuccess: %v", when)
 	}, nil)
 
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
 	// wait for initial reading
 	time.Sleep(2 * time.Second)
 	mocWgIface.disconnect()
@@ -149,10 +157,14 @@ func TestWGWatcher_ReEnable(t *testing.T) {
 	watcher.PrepareInitialHandshake()
 
 	onDisconnected := make(chan struct{}, 1)
-	go watcher.EnableWgWatcher(ctx, time.Now(), func() {
+	done := runTestWGWatcher(ctx, watcher, time.Now(), func() {
 		onDisconnected <- struct{}{}
 	}, func(when time.Time) {}, nil)
 
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
 	time.Sleep(2 * time.Second)
 	mocWgIface.disconnect()
 
@@ -161,4 +173,13 @@ func TestWGWatcher_ReEnable(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Errorf("timeout")
 	}
+}
+
+func runTestWGWatcher(ctx context.Context, watcher *WGWatcher, enabled time.Time, disconnected func(), handshake func(time.Time), checked func()) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		watcher.EnableWgWatcher(ctx, enabled, disconnected, handshake, checked)
+	}()
+	return done
 }

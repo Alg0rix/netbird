@@ -167,7 +167,10 @@ func (w *WorkerRelay) policyAnnouncement() *sproto.RelayPolicyAttempt {
 }
 
 func (w *WorkerRelay) acceptPolicy(offer *OfferAnswer) bool {
-	if w.managed == nil {
+	if offer == nil {
+		return false
+	}
+	if w == nil || w.managed == nil {
 		return offer.RelayPolicyAttempt == nil
 	}
 	return w.managed.accept(offer.RelayPolicyAttempt)

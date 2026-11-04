@@ -171,10 +171,12 @@ func (m *Manager) acquire(ctx context.Context, address string, ip netip.Addr, en
 	}
 	rt := m.relayClients[string(key)]
 	if rt != nil {
-		rt.RLock()
-		c, finished := rt.relayClient, rt.err
-		rt.RUnlock()
-		if finished != nil || (c != nil && !c.Ready()) {
+		rt.Lock()
+		c, finished, refs := rt.relayClient, rt.err, rt.refs
+		// A final owner cancels an unfinished dial. A retry must not join it,
+		// especially when signaling supplies a new fallback address.
+		if finished != nil || (c == nil && refs == 0) || (c != nil && !c.Ready()) {
+			rt.Unlock()
 			delete(m.relayClients, string(key))
 			rt = nil
 		}
@@ -182,9 +184,9 @@ func (m *Manager) acquire(ctx context.Context, address string, ip netip.Addr, en
 	start := rt == nil
 	if start {
 		rt = NewRelayTrack()
+		rt.Lock()
 		m.relayClients[string(key)] = rt
 	}
-	rt.Lock()
 	rt.refs++
 	rt.Unlock()
 	m.relayClientsMutex.Unlock()
@@ -228,6 +230,15 @@ func (m *Manager) acquire(ctx context.Context, address string, ip netip.Addr, en
 					err = rp.ValidateInstance(*validationEntry, rp.RelayEndpoint(instance))
 				}
 			}
+			rt.Lock()
+			if err == nil && rt.refs == 0 {
+				err = context.Canceled
+			}
+			rt.err = err
+			if err == nil {
+				rt.relayClient = c
+			}
+			rt.Unlock()
 			if err != nil {
 				if closeErr := c.Close(); closeErr != nil {
 					log.Debugf("close rejected relay registration: %v", closeErr)
@@ -235,12 +246,6 @@ func (m *Manager) acquire(ctx context.Context, address string, ip netip.Addr, en
 			} else {
 				c.SetOnDisconnectListener(m.onServerDisconnected)
 			}
-			rt.Lock()
-			rt.err = err
-			if err == nil {
-				rt.relayClient = c
-			}
-			rt.Unlock()
 			close(rt.ready)
 			m.relayClientsMutex.Lock()
 			if err != nil {

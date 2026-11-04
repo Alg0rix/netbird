@@ -2,9 +2,10 @@ package client
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestServerPicker_UnavailableServers(t *testing.T) {
@@ -16,19 +17,10 @@ func TestServerPicker_UnavailableServers(t *testing.T) {
 	}
 	sp.ServerURLs.Store([]string{"rel://dummy1", "rel://dummy2"})
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout+1)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout+time.Second)
 	defer cancel()
 
-	go func() {
-		_, err := sp.PickServer(ctx)
-		if err == nil {
-			t.Error(err)
-		}
-		cancel()
-	}()
-
-	<-ctx.Done()
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		t.Errorf("PickServer() took too long to complete")
-	}
+	_, err := sp.PickServer(ctx)
+	require.Error(t, err, "unavailable servers must return a connection failure")
+	require.NoError(t, ctx.Err(), "the picker must finish within its own timeout before the caller deadline")
 }
