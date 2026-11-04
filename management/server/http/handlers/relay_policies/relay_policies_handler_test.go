@@ -120,3 +120,23 @@ func TestRelayHTTPAuthorizationAndSymmetricEffectivePolicy(t *testing.T) {
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &list))
 	assert.Len(t, list.Items, 1, "pair policy is visible from its destination as well as its source")
 }
+
+func TestRelayHTTPStatusAuthorizationAndPending(t *testing.T) {
+	router, manager := relayHTTPFixture(t)
+	candidate := rp.Configuration{Policies: []rp.RelayPairPolicy{{ID: "pair", AccountID: "relay-http", Name: "Pair", Enabled: true, Source: rp.RelaySelector{PeerIDs: []rp.PeerID{"x"}}, Destination: rp.RelaySelector{PeerIDs: []rp.PeerID{"y"}}, Constraints: rp.RelayConstraints{ForceRelay: true}}}}
+	_, err := manager.Save(context.Background(), "relay-http", "owner", 0, 1, candidate)
+	require.NoError(t, err)
+	var forward, reverse api.RelayPolicyStatus
+	response := relayHTTPRequest(t, router, "auditor", http.MethodGet, "/relay-policies/status?peer_a=x&peer_b=y", nil)
+	require.Equal(t, http.StatusOK, response.Code, "auditors can inspect current pair status: %s", response.Body.String())
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &forward))
+	assert.Equal(t, api.RelayPolicyStatusApplication("pending"), forward.Application, "configuration alone cannot prove application")
+	assert.False(t, forward.Healthy, "missing observations cannot imply a healthy path")
+	require.NotNil(t, forward.Policy)
+	response = relayHTTPRequest(t, router, "owner", http.MethodGet, "/relay-policies/status?peer_a=y&peer_b=x", nil)
+	require.Equal(t, http.StatusOK, response.Code, "either endpoint can identify a pair")
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &reverse))
+	assert.Equal(t, forward, reverse, "status normalizes pair orientation")
+	response = relayHTTPRequest(t, router, "regular", http.MethodGet, "/relay-policies/status?peer_a=x&peer_b=y", nil)
+	assert.Equal(t, http.StatusForbidden, response.Code, "ordinary users cannot inspect administrative status")
+}

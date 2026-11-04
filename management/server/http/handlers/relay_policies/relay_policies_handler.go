@@ -45,6 +45,7 @@ func (h *handler) registerEndpoints(router *mux.Router) {
 	router.HandleFunc("/relay-policies/configuration", h.configuration).Methods(http.MethodGet, http.MethodPut, http.MethodOptions)
 	router.HandleFunc("/relay-policies/preview", h.preview).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/relay-policies/effective", h.effective).Methods(http.MethodGet, http.MethodOptions)
+	router.HandleFunc("/relay-policies/status", h.status).Methods(http.MethodGet, http.MethodOptions)
 	router.HandleFunc("/relay-policies/retry-preferred", h.retry).Methods(http.MethodPost, http.MethodOptions)
 	for path, kind := range map[string]resourceKind{"/relay-groups": groupKind, "/relay-home-profiles": profileKind, "/relay-pair-policies": pairKind} {
 		router.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) { h.resource(w, r, kind) }).Methods(http.MethodGet, http.MethodPost, http.MethodOptions)

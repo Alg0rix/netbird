@@ -65,22 +65,23 @@ type ConvertOptions struct {
 }
 
 type PeerStateDetailOutput struct {
-	FQDN                   string           `json:"fqdn" yaml:"fqdn"`
-	IP                     string           `json:"netbirdIp" yaml:"netbirdIp"`
-	IPv6                   string           `json:"netbirdIpv6,omitempty" yaml:"netbirdIpv6,omitempty"`
-	PubKey                 string           `json:"publicKey" yaml:"publicKey"`
-	Status                 string           `json:"status" yaml:"status"`
-	LastStatusUpdate       time.Time        `json:"lastStatusUpdate" yaml:"lastStatusUpdate"`
-	ConnType               string           `json:"connectionType" yaml:"connectionType"`
-	IceCandidateType       IceCandidateType `json:"iceCandidateType" yaml:"iceCandidateType"`
-	IceCandidateEndpoint   IceCandidateType `json:"iceCandidateEndpoint" yaml:"iceCandidateEndpoint"`
-	RelayAddress           string           `json:"relayAddress" yaml:"relayAddress"`
-	LastWireguardHandshake time.Time        `json:"lastWireguardHandshake" yaml:"lastWireguardHandshake"`
-	TransferReceived       int64            `json:"transferReceived" yaml:"transferReceived"`
-	TransferSent           int64            `json:"transferSent" yaml:"transferSent"`
-	Latency                time.Duration    `json:"latency" yaml:"latency"`
-	RosenpassEnabled       bool             `json:"quantumResistance" yaml:"quantumResistance"`
-	Networks               []string         `json:"networks" yaml:"networks"`
+	RelayPolicy            *RelayPolicyOutput `json:"relayPolicy,omitempty" yaml:"relayPolicy,omitempty"`
+	FQDN                   string             `json:"fqdn" yaml:"fqdn"`
+	IP                     string             `json:"netbirdIp" yaml:"netbirdIp"`
+	IPv6                   string             `json:"netbirdIpv6,omitempty" yaml:"netbirdIpv6,omitempty"`
+	PubKey                 string             `json:"publicKey" yaml:"publicKey"`
+	Status                 string             `json:"status" yaml:"status"`
+	LastStatusUpdate       time.Time          `json:"lastStatusUpdate" yaml:"lastStatusUpdate"`
+	ConnType               string             `json:"connectionType" yaml:"connectionType"`
+	IceCandidateType       IceCandidateType   `json:"iceCandidateType" yaml:"iceCandidateType"`
+	IceCandidateEndpoint   IceCandidateType   `json:"iceCandidateEndpoint" yaml:"iceCandidateEndpoint"`
+	RelayAddress           string             `json:"relayAddress" yaml:"relayAddress"`
+	LastWireguardHandshake time.Time          `json:"lastWireguardHandshake" yaml:"lastWireguardHandshake"`
+	TransferReceived       int64              `json:"transferReceived" yaml:"transferReceived"`
+	TransferSent           int64              `json:"transferSent" yaml:"transferSent"`
+	Latency                time.Duration      `json:"latency" yaml:"latency"`
+	RosenpassEnabled       bool               `json:"quantumResistance" yaml:"quantumResistance"`
+	Networks               []string           `json:"networks" yaml:"networks"`
 }
 
 type PeersStateOutput struct {
@@ -140,6 +141,7 @@ type SSHServerStateOutput struct {
 }
 
 type OutputOverview struct {
+	RelayPolicies         []RelayPolicyOutput        `json:"relayPolicies,omitempty" yaml:"relayPolicies,omitempty"`
 	Peers                 PeersStateOutput           `json:"peers" yaml:"peers"`
 	CliVersion            string                     `json:"cliVersion" yaml:"cliVersion"`
 	DaemonVersion         string                     `json:"daemonVersion" yaml:"daemonVersion"`
@@ -190,6 +192,7 @@ func ConvertToStatusOutputOverview(pbFullStatus *proto.FullStatus, opts ConvertO
 
 	overview := OutputOverview{
 		Peers:                 peersOverview,
+		RelayPolicies:         mapRelayPolicies(pbFullStatus.GetRelayPolicyStatuses()),
 		CliVersion:            version.NetbirdVersion(),
 		DaemonVersion:         opts.DaemonVersion,
 		DaemonStatus:          opts.DaemonStatus,
@@ -359,6 +362,7 @@ func mapPeers(
 				Remote: remoteICEEndpoint,
 			},
 			RelayAddress:           relayServerAddress,
+			RelayPolicy:            mapRelayPolicy(pbPeerState.GetRelayPolicy()),
 			FQDN:                   pbPeerState.GetFqdn(),
 			LastWireguardHandshake: lastHandshake,
 			TransferReceived:       transferReceived,
@@ -641,6 +645,7 @@ func (o *OutputOverview) FullDetailSummary() string {
 	parsedPeersString := parsePeers(o.Peers, o.RosenpassEnabled, o.RosenpassPermissive)
 	parsedEventsString := parseEvents(o.Events)
 	summary := o.GeneralSummary(true, true, true, true)
+	summary += relayPolicySummary(o.RelayPolicies)
 
 	return fmt.Sprintf(
 		"Peers detail:"+
@@ -706,9 +711,15 @@ func ToProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 			Latency:                    durationpb.New(peerState.Latency),
 			SshHostKey:                 peerState.SSHHostKey,
 		}
+		if peerState.RelayPolicy != nil {
+			pbPeerState.RelayPolicy = peerState.RelayPolicy.Proto()
+		}
 		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
 	}
 
+	for _, observation := range fullStatus.RelayPolicies {
+		pbFullStatus.RelayPolicyStatuses = append(pbFullStatus.RelayPolicyStatuses, observation.Proto())
+	}
 	for _, relayState := range fullStatus.Relays {
 		pbRelayState := &proto.RelayState{
 			URI:       relayState.URI,

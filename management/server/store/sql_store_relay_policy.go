@@ -322,7 +322,7 @@ func (s *SqlStore) getRelaySnapshotForAccount(ctx context.Context, accountID typ
 }
 
 func deleteRelayAccountConfig(tx *gorm.DB, accountID string) error {
-	for _, model := range []any{&types.RelayGroup{}, &types.RelayHomeProfile{}, &types.RelayPairPolicy{}, &types.RelayReselection{}, &types.RelayAccountState{}} {
+	for _, model := range []any{&types.RelayGroup{}, &types.RelayHomeProfile{}, &types.RelayPairPolicy{}, &types.RelayReselection{}, &types.RelayAccountState{}, &RelayObservation{}} {
 		if err := tx.Where("account_id = ?", accountID).Delete(model).Error; err != nil {
 			return fmt.Errorf("delete account relay configuration: %w", err)
 		}
@@ -331,6 +331,9 @@ func deleteRelayAccountConfig(tx *gorm.DB, accountID string) error {
 }
 
 func deleteRelayPeerConfig(tx *gorm.DB, accountID, peerID string) error {
+	if err := tx.Where("account_id = ? AND (local_peer_id = ? OR remote_peer_id = ?)", accountID, peerID, peerID).Delete(&RelayObservation{}).Error; err != nil {
+		return err
+	}
 	if err := tx.Model(&types.Account{}).Where("id = ?", accountID).
 		Update("network_serial", gorm.Expr("network_serial")).Error; err != nil {
 		return err

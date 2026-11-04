@@ -16,6 +16,7 @@ func MigrateRelayPolicySchema(ctx context.Context, db *gorm.DB) error {
 		&relaypolicy.RelayGroup{}, &relaypolicy.RelayHomeProfile{}, &relaypolicy.RelayPairPolicy{},
 		&relaypolicy.RelayAccountState{}, &relaypolicy.RelayReselection{},
 		&relaypolicy.CatalogHead{}, &relaypolicy.CatalogPublication{},
+		&relaypolicy.ObservationRecord{},
 	); err != nil {
 		return fmt.Errorf("migrate relay policy relations: %w", err)
 	}

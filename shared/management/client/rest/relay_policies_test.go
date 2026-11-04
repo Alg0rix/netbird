@@ -49,3 +49,18 @@ func TestRelayPoliciesSDKFiltersAndConflict(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, apiError.StatusCode, "callers can distinguish stale edits from validation errors")
 	assert.Nil(t, result, "a conflict cannot return a success response")
 }
+
+func TestRelayPoliciesSDKStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method, "status lookup is read-only")
+		assert.Equal(t, "/api/relay-policies/status", r.URL.Path, "status uses the public endpoint")
+		assert.Equal(t, "x", r.URL.Query().Get("peer_a"), "first endpoint reaches the server")
+		assert.Equal(t, "y", r.URL.Query().Get("peer_b"), "second endpoint reaches the server")
+		require.NoError(t, json.NewEncoder(w).Encode(api.RelayPolicyStatus{PeerA: "x", PeerB: "y", Application: api.RelayPolicyStatusApplication("pending"), Endpoints: []api.RelayPathObservation{}}))
+	}))
+	t.Cleanup(server.Close)
+	result, err := rest.New(server.URL, "token").RelayPolicies.Status(context.Background(), "x", "y")
+	require.NoError(t, err)
+	assert.Equal(t, api.RelayPolicyStatusApplication("pending"), result.Application, "application state survives the typed SDK boundary")
+	assert.False(t, result.Healthy, "pending configuration cannot claim path health")
+}

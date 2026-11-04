@@ -203,6 +203,8 @@ type EngineServices struct {
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
 type Engine struct {
+	relayPolicyDesired map[rp.PeerID]*rp.ResolvedRelayPolicy
+	relayHomeDesired   *rp.ResolvedRelayPolicy
 	// signal is a Signal Service client
 	signal   signal.Client
 	signaler *peer.Signaler
@@ -1558,6 +1560,7 @@ func validateBundleUploadURL(raw string) error {
 // receiveManagementEvents connects to the Management Service event stream to receive updates from the management service
 // E.g. when a new peer has been registered and we are allowed to connect to it.
 func (e *Engine) receiveManagementEvents() {
+	e.startRelayPolicyReporter()
 	e.shutdownWg.Add(1)
 	go func() {
 		defer e.shutdownWg.Done()
@@ -3027,6 +3030,7 @@ func decodeRelayIP(b []byte) netip.Addr {
 }
 
 func (e *Engine) applyRelayPolicies(networkMap *mgmProto.NetworkMap) error {
+	e.captureRelayPolicyIntent(networkMap)
 	if e.relayManager == nil {
 		return nil
 	}

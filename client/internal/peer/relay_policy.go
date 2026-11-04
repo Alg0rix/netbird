@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"errors"
 	"sync"
 	"time"
 
@@ -23,6 +24,8 @@ type managedRelay struct {
 	selectedSequence uint64
 	remoteSequence   uint64
 	retryDelay       time.Duration
+	lastReason       rp.FailureReason
+	exhausted        bool
 	remoteNonce      []byte
 	retired          map[negotiationNonce]bool
 	mu               sync.Mutex
@@ -196,15 +199,18 @@ func (m *managedRelay) respond(ctx context.Context, remote *OfferAnswer) {
 	}
 	lease, err := m.worker.relayManager.AcquireRegistration(establishment, entry)
 	if err != nil {
+		m.recordFailure(rp.ReasonRelayUnavailable, true)
 		return
 	}
 	defer lease.Release()
 	instance, _, err := lease.InstanceAddress()
 	if err != nil || instance != a.Instance {
+		m.recordFailure(rp.ReasonInstanceMismatch, true)
 		return
 	}
 	conn, err := lease.OpenConn(establishment, m.worker.config.Key)
 	if err != nil {
+		m.recordFailure(relayAttemptFailure(err), true)
 		return
 	}
 	installed := false
@@ -225,6 +231,7 @@ func (m *managedRelay) respond(ctx context.Context, remote *OfferAnswer) {
 		}
 		select {
 		case <-establishment.Done():
+			m.recordFailure(rp.ReasonPairTimeout, true)
 			return
 		case <-ticker.C:
 			continue
@@ -271,6 +278,8 @@ func (m *managedRelay) install(ctx context.Context, a *sproto.RelayPolicyAttempt
 	}
 	m.lease = lease
 	m.retryDelay = time.Second
+	m.lastReason = rp.ReasonNone
+	m.exhausted = false
 	m.selected = rp.RelayID(a.RelayId)
 	m.selectedSequence = a.Sequence
 	m.worker.relayLock.Lock()
@@ -309,6 +318,8 @@ func (m *managedRelay) control() {
 					cancel()
 					if err == nil {
 						results <- acquired{lease, entry}
+					} else if tierCtx.Err() == nil {
+						m.recordFailure(rp.ReasonRelayUnavailable, false)
 					}
 				}
 			}()
@@ -335,6 +346,10 @@ func (m *managedRelay) control() {
 	}
 	m.mu.Lock()
 	m.started = false
+	m.exhausted = true
+	if m.lastReason == rp.ReasonNone {
+		m.lastReason = rp.ReasonExhausted
+	}
 	if m.retryDelay == 0 {
 		m.retryDelay = time.Second
 	} else {
@@ -347,6 +362,7 @@ func (m *managedRelay) control() {
 func (m *managedRelay) attempt(lease *relayClient.Registration, entry rp.RelayCatalogEntry) bool {
 	instance, _, err := lease.InstanceAddress()
 	if err != nil {
+		m.recordFailure(rp.ReasonInstanceMismatch, false)
 		return false
 	}
 	ctx, cancel := context.WithCancel(m.worker.peerCtx)
@@ -391,6 +407,7 @@ func (m *managedRelay) attempt(lease *relayClient.Registration, entry rp.RelayCa
 	conn, err := lease.OpenConn(establishment, m.worker.config.Key)
 	close(openDone)
 	if err != nil {
+		m.recordFailure(relayAttemptFailure(err), false)
 		cancel()
 		return false
 	}
@@ -402,6 +419,7 @@ func (m *managedRelay) attempt(lease *relayClient.Registration, entry rp.RelayCa
 		}
 		select {
 		case <-establishment.Done():
+			m.recordFailure(rp.ReasonPairTimeout, false)
 			cancel()
 			if err := conn.Close(); err != nil {
 				m.worker.log.Debugf("close unsuccessful relay attempt: %v", err)
@@ -450,6 +468,7 @@ func (m *managedRelay) hold(ctx context.Context, cancel context.CancelFunc, leas
 		owned := sameAttempt(m.current, confirmed)
 		if owned {
 			m.started = false
+			m.lastReason = rp.ReasonDisconnected
 			m.selected = ""
 		}
 		m.mu.Unlock()
@@ -505,4 +524,22 @@ func (m *managedRelay) restart() {
 	m.started = true
 	m.mu.Unlock()
 	m.control()
+}
+
+func (m *managedRelay) recordFailure(reason rp.FailureReason, exhausted bool) {
+	m.mu.Lock()
+	m.lastReason = reason
+	m.exhausted = exhausted
+	m.mu.Unlock()
+}
+
+func relayAttemptFailure(err error) rp.FailureReason {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return rp.ReasonPairTimeout
+	case errors.Is(err, context.Canceled):
+		return rp.ReasonCancelled
+	default:
+		return rp.ReasonRelayUnavailable
+	}
 }

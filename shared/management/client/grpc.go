@@ -72,8 +72,11 @@ type GrpcClient struct {
 	// cannot sync (e.g. the server returns "settings not found"), so the
 	// health probe must consult this to avoid reporting a healthy management
 	// connection while the Sync stream keeps failing.
-	syncStreamMu  sync.RWMutex
-	syncStreamErr error
+	syncStreamMu         sync.RWMutex
+	relayReportSession   int64
+	relayReportSequence  uint64
+	relayReportServerKey wgtypes.Key
+	syncStreamErr        error
 }
 
 type ExposeRequest struct {
@@ -495,6 +498,7 @@ func (c *GrpcClient) connectToSyncStream(ctx context.Context, serverPubKey wgtyp
 }
 
 func (c *GrpcClient) receiveUpdatesEvents(stream proto.ManagementService_SyncClient, serverPubKey wgtypes.Key, msgHandler func(msg *proto.SyncResponse) error) error {
+	defer func() { c.syncStreamMu.Lock(); c.relayReportSession = 0; c.syncStreamMu.Unlock() }()
 	for {
 		update, err := stream.Recv()
 		if err == io.EOF {
@@ -516,6 +520,13 @@ func (c *GrpcClient) receiveUpdatesEvents(stream proto.ManagementService_SyncCli
 
 		if err := msgHandler(decryptedResp); err != nil {
 			log.Errorf("failed handling an update message received from Management Service: %v", err.Error())
+			continue
+		}
+		if session := decryptedResp.GetRelayReportSession(); session != 0 {
+			c.syncStreamMu.Lock()
+			c.relayReportSession = session
+			c.relayReportServerKey = serverPubKey
+			c.syncStreamMu.Unlock()
 		}
 	}
 }
@@ -827,6 +838,7 @@ func (c *GrpcClient) setSyncStreamDisconnected(err error) {
 	c.syncStreamMu.Lock()
 	defer c.syncStreamMu.Unlock()
 	c.syncStreamErr = err
+	c.relayReportSession = 0
 }
 
 func (c *GrpcClient) syncStreamError() error {

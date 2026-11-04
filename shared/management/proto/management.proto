@@ -46,6 +46,9 @@ service ManagementService {
   // EncryptedMessage of the request has a body of Empty.
   rpc  SyncMeta(EncryptedMessage) returns (Empty) {}
 
+  // Reports encrypted observations owned by the current authenticated Sync session.
+  rpc ReportRelayPolicyStatus(EncryptedMessage) returns (Empty) {}
+
   // Logout logs out the peer and removes it from the management server
   rpc Logout(EncryptedMessage) returns (Empty) {}
 
@@ -165,6 +168,43 @@ message SyncResponse {
   NetworkMapEnvelope NetworkMapEnvelope = 8;
 
   int32 Version = 9;
+
+  // Current server-issued Sync session fencing token, present on the initial snapshot.
+  int64 relayReportSession = 10;
+}
+
+enum RelayPathTransport {
+  RELAY_PATH_TRANSPORT_UNKNOWN = 0;
+  RELAY_PATH_TRANSPORT_DIRECT = 1;
+  RELAY_PATH_TRANSPORT_NATIVE_RELAY = 2;
+}
+
+enum RelayPathState {
+  RELAY_PATH_STATE_UNKNOWN = 0;
+  RELAY_PATH_STATE_PENDING = 1;
+  RELAY_PATH_STATE_APPLIED = 2;
+  RELAY_PATH_STATE_BLOCKED = 3;
+  RELAY_PATH_STATE_UNSUPPORTED = 4;
+}
+
+message RelayPolicyStatusRequest {
+  int64 session = 1;
+  repeated RelayPathReport reports = 2;
+}
+
+message RelayPathReport {
+  // Empty identifies the home assignment; otherwise this is the remote public key.
+  string remotePeerKey = 1;
+  uint64 revision = 2;
+  string digest = 3;
+  uint64 catalogGeneration = 4;
+  uint64 reselectionGeneration = 5;
+  uint64 sequence = 6;
+  uint64 attempt = 7;
+  RelayPathTransport transport = 8;
+  string relayId = 9;
+  RelayPathState state = 10;
+  string reason = 11;
 }
 
 message  SyncMetaRequest {

@@ -402,6 +402,7 @@ message PeerState {
   string relayAddress = 18;
   bytes sshHostKey = 19;
   string ipv6 = 20;
+  RelayPolicyStatus relayPolicy = 21;
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -484,6 +485,7 @@ message FullStatus {
   // on it to know when to re-fetch ListNetworks via the push stream, instead
   // of polling on every status snapshot.
   uint64 networksRevision = 11;
+  repeated RelayPolicyStatus relayPolicyStatuses = 12;
 }
 
 // Networks
@@ -1087,3 +1089,18 @@ message StartBundleCaptureRequest {
 message StartBundleCaptureResponse {}
 message StopBundleCaptureRequest {}
 message StopBundleCaptureResponse {}
+
+// RelayPolicyStatus separates received instructions from the observed transport.
+message RelayPolicyStatus {
+  string remotePeerKey = 1;
+  uint64 desiredRevision = 2;
+  uint64 appliedRevision = 3;
+  string digest = 4;
+  uint64 catalogGeneration = 5;
+  uint64 reselectionGeneration = 6;
+  uint64 attempt = 7;
+  string transport = 8;
+  string relayId = 9;
+  string state = 10;
+  string reason = 11;
+}

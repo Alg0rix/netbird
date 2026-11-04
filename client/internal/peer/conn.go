@@ -1137,7 +1137,10 @@ func (conn *Conn) RelayPolicySelection() (rp.RelayID, uint64) {
 	m := relayWorker.managed
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.stopped {
+	relayWorker.relayLock.Lock()
+	selectedConn := relayWorker.relayedConn
+	relayWorker.relayLock.Unlock()
+	if m.stopped || conn.relayedConnRef == nil || selectedConn != conn.relayedConnRef || conn.relayedConnRef.Context() == nil || conn.relayedConnRef.Context().Err() != nil {
 		return "", 0
 	}
 	return m.selected, m.selectedSequence

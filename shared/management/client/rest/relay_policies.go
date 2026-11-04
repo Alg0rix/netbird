@@ -91,6 +91,11 @@ func (a *RelayPoliciesAPI) Effective(ctx context.Context, peerA, peerB rp.PeerID
 	return relayRequest[api.RelayEffectiveResponse](ctx, a.c, http.MethodGet, "/api/relay-policies/effective", nil, map[string]string{"peer_a": string(peerA), "peer_b": string(peerB)})
 }
 
+// Status reads both authenticated endpoint observations separately from the desired home or pair policy.
+func (a *RelayPoliciesAPI) Status(ctx context.Context, peerA, peerB rp.PeerID) (*api.RelayPolicyStatus, error) {
+	return relayRequest[api.RelayPolicyStatus](ctx, a.c, http.MethodGet, "/api/relay-policies/status", nil, map[string]string{"peer_a": string(peerA), "peer_b": string(peerB)})
+}
+
 // RetryPreferred advances a targeted retry generation without changing relay permissions.
 func (a *RelayPoliciesAPI) RetryPreferred(ctx context.Context, request api.RelayRetryRequest) (*api.RelayRetryResponse, error) {
 	return relayRequest[api.RelayRetryResponse](ctx, a.c, http.MethodPost, "/api/relay-policies/retry-preferred", request, nil)

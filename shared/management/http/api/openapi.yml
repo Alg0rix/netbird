@@ -107,6 +107,40 @@ tags:
 
 components:
   schemas:
+    RelayPathObservation:
+      type: object
+      required: [local_peer_id, remote_peer_id, revision, digest, catalog_generation, reselection_generation, sequence, attempt, transport, relay_id, state, reason, observed_at, expires_at, current]
+      properties:
+        local_peer_id: {type: string}
+        remote_peer_id: {type: string, description: Empty for home registration.}
+        revision: {type: integer, minimum: 0, x-go-type: uint64}
+        digest: {type: string}
+        catalog_generation: {type: integer, minimum: 0, x-go-type: uint64}
+        reselection_generation: {type: integer, minimum: 0, x-go-type: uint64}
+        sequence: {type: integer, minimum: 1, x-go-type: uint64}
+        attempt: {type: integer, minimum: 0, x-go-type: uint64}
+        transport: {type: string, enum: [unknown, direct, native_relay]}
+        relay_id: {type: string}
+        state: {type: string, enum: [pending, applied, blocked, unsupported]}
+        reason:
+          type: string
+          maxLength: 128
+          enum: ['', connecting, lazy, no_permitted_relay, invalid_policy, higher_priority_unavailable, policy_mismatch, unsupported, exhausted, disconnected, pair_timeout, relay_unavailable, authentication_failed, instance_mismatch, cancelled]
+        observed_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
+        current: {type: boolean, description: False after expiry, ownership change, disconnection or policy change.}
+    RelayPolicyStatus:
+      type: object
+      required: [peer_a, peer_b, application, healthy, transport, relay_id, endpoints]
+      properties:
+        peer_a: {type: string}
+        peer_b: {type: string, description: Empty identifies home-profile status independently of pair paths.}
+        policy: {$ref: '#/components/schemas/RelayEffectivePolicy'}
+        application: {type: string, enum: [unknown, pending, applied, unsupported, stale, disagreement, unconfigured]}
+        healthy: {type: boolean, description: Applied configuration alone never establishes working transport.}
+        transport: {type: string, enum: [unknown, direct, native_relay]}
+        relay_id: {type: string}
+        endpoints: {type: array, maxItems: 2, items: {$ref: '#/components/schemas/RelayPathObservation'}}
     RelayCatalogItem:
       type: object
       required: [id, endpoint, instance_endpoint, aliases, active, legacy]
@@ -6803,6 +6837,44 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/RelayPolicyPreview'}
+        '400':
+          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+        '401':
+          $ref: '#/components/responses/requires_authentication'
+        '403':
+          $ref: '#/components/responses/forbidden'
+        '404':
+          description: Resource not found in this account.
+        '409':
+          description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '429':
+          description: Retry request rate limit exceeded.
+        '500':
+          $ref: '#/components/responses/internal_error'
+  /api/relay-policies/status:
+    get:
+      summary: Read authenticated effective home or pair path status
+      tags: [Relay Policies]
+      security:
+        - BearerAuth: []
+        - TokenAuth: []
+      parameters:
+        - name: peer_a
+          in: query
+          required: true
+          description: Local or remote account peer ID.
+          schema: {type: string}
+        - name: peer_b
+          in: query
+          required: false
+          description: Other peer ID; omit for home scope. Pair orientation is irrelevant.
+          schema: {type: string}
+      responses:
+        '200':
+          description: Read authenticated effective home or pair path status
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RelayPolicyStatus'}
         '400':
           description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
         '401':

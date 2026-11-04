@@ -48,6 +48,8 @@ type ManagementServiceClient interface {
 	// sync meta will evaluate the checks and update the peer meta with the result.
 	// EncryptedMessage of the request has a body of Empty.
 	SyncMeta(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*Empty, error)
+	// Reports encrypted observations owned by the current authenticated Sync session.
+	ReportRelayPolicyStatus(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*Empty, error)
 	// Logout logs out the peer and removes it from the management server
 	Logout(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*Empty, error)
 	// Executes a job on a target peer (e.g., debug bundle)
@@ -155,6 +157,15 @@ func (c *managementServiceClient) GetPKCEAuthorizationFlow(ctx context.Context, 
 func (c *managementServiceClient) SyncMeta(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*Empty, error) {
 	out := new(Empty)
 	err := c.cc.Invoke(ctx, "/management.ManagementService/SyncMeta", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *managementServiceClient) ReportRelayPolicyStatus(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*Empty, error) {
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, "/management.ManagementService/ReportRelayPolicyStatus", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -271,6 +282,8 @@ type ManagementServiceServer interface {
 	// sync meta will evaluate the checks and update the peer meta with the result.
 	// EncryptedMessage of the request has a body of Empty.
 	SyncMeta(context.Context, *EncryptedMessage) (*Empty, error)
+	// Reports encrypted observations owned by the current authenticated Sync session.
+	ReportRelayPolicyStatus(context.Context, *EncryptedMessage) (*Empty, error)
 	// Logout logs out the peer and removes it from the management server
 	Logout(context.Context, *EncryptedMessage) (*Empty, error)
 	// Executes a job on a target peer (e.g., debug bundle)
@@ -315,6 +328,9 @@ func (UnimplementedManagementServiceServer) GetPKCEAuthorizationFlow(context.Con
 }
 func (UnimplementedManagementServiceServer) SyncMeta(context.Context, *EncryptedMessage) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SyncMeta not implemented")
+}
+func (UnimplementedManagementServiceServer) ReportRelayPolicyStatus(context.Context, *EncryptedMessage) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReportRelayPolicyStatus not implemented")
 }
 func (UnimplementedManagementServiceServer) Logout(context.Context, *EncryptedMessage) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Logout not implemented")
@@ -476,6 +492,24 @@ func _ManagementService_SyncMeta_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ManagementService_ReportRelayPolicyStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EncryptedMessage)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ManagementServiceServer).ReportRelayPolicyStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/management.ManagementService/ReportRelayPolicyStatus",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ManagementServiceServer).ReportRelayPolicyStatus(ctx, req.(*EncryptedMessage))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ManagementService_Logout_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(EncryptedMessage)
 	if err := dec(in); err != nil {
@@ -622,6 +656,10 @@ var ManagementService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SyncMeta",
 			Handler:    _ManagementService_SyncMeta_Handler,
+		},
+		{
+			MethodName: "ReportRelayPolicyStatus",
+			Handler:    _ManagementService_ReportRelayPolicyStatus_Handler,
 		},
 		{
 			MethodName: "Logout",

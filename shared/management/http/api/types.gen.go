@@ -914,6 +914,162 @@ func (e RelayEffectivePolicyState) Valid() bool {
 	}
 }
 
+// Defines values for RelayPathObservationReason.
+const (
+	RelayPathObservationReasonAuthenticationFailed      RelayPathObservationReason = "authentication_failed"
+	RelayPathObservationReasonCancelled                 RelayPathObservationReason = "cancelled"
+	RelayPathObservationReasonConnecting                RelayPathObservationReason = "connecting"
+	RelayPathObservationReasonDisconnected              RelayPathObservationReason = "disconnected"
+	RelayPathObservationReasonEmpty                     RelayPathObservationReason = ""
+	RelayPathObservationReasonExhausted                 RelayPathObservationReason = "exhausted"
+	RelayPathObservationReasonHigherPriorityUnavailable RelayPathObservationReason = "higher_priority_unavailable"
+	RelayPathObservationReasonInstanceMismatch          RelayPathObservationReason = "instance_mismatch"
+	RelayPathObservationReasonInvalidPolicy             RelayPathObservationReason = "invalid_policy"
+	RelayPathObservationReasonLazy                      RelayPathObservationReason = "lazy"
+	RelayPathObservationReasonNoPermittedRelay          RelayPathObservationReason = "no_permitted_relay"
+	RelayPathObservationReasonPairTimeout               RelayPathObservationReason = "pair_timeout"
+	RelayPathObservationReasonPolicyMismatch            RelayPathObservationReason = "policy_mismatch"
+	RelayPathObservationReasonRelayUnavailable          RelayPathObservationReason = "relay_unavailable"
+	RelayPathObservationReasonUnsupported               RelayPathObservationReason = "unsupported"
+)
+
+// Valid indicates whether the value is a known member of the RelayPathObservationReason enum.
+func (e RelayPathObservationReason) Valid() bool {
+	switch e {
+	case RelayPathObservationReasonAuthenticationFailed:
+		return true
+	case RelayPathObservationReasonCancelled:
+		return true
+	case RelayPathObservationReasonConnecting:
+		return true
+	case RelayPathObservationReasonDisconnected:
+		return true
+	case RelayPathObservationReasonEmpty:
+		return true
+	case RelayPathObservationReasonExhausted:
+		return true
+	case RelayPathObservationReasonHigherPriorityUnavailable:
+		return true
+	case RelayPathObservationReasonInstanceMismatch:
+		return true
+	case RelayPathObservationReasonInvalidPolicy:
+		return true
+	case RelayPathObservationReasonLazy:
+		return true
+	case RelayPathObservationReasonNoPermittedRelay:
+		return true
+	case RelayPathObservationReasonPairTimeout:
+		return true
+	case RelayPathObservationReasonPolicyMismatch:
+		return true
+	case RelayPathObservationReasonRelayUnavailable:
+		return true
+	case RelayPathObservationReasonUnsupported:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RelayPathObservationState.
+const (
+	RelayPathObservationStateApplied     RelayPathObservationState = "applied"
+	RelayPathObservationStateBlocked     RelayPathObservationState = "blocked"
+	RelayPathObservationStatePending     RelayPathObservationState = "pending"
+	RelayPathObservationStateUnsupported RelayPathObservationState = "unsupported"
+)
+
+// Valid indicates whether the value is a known member of the RelayPathObservationState enum.
+func (e RelayPathObservationState) Valid() bool {
+	switch e {
+	case RelayPathObservationStateApplied:
+		return true
+	case RelayPathObservationStateBlocked:
+		return true
+	case RelayPathObservationStatePending:
+		return true
+	case RelayPathObservationStateUnsupported:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RelayPathObservationTransport.
+const (
+	RelayPathObservationTransportDirect      RelayPathObservationTransport = "direct"
+	RelayPathObservationTransportNativeRelay RelayPathObservationTransport = "native_relay"
+	RelayPathObservationTransportUnknown     RelayPathObservationTransport = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the RelayPathObservationTransport enum.
+func (e RelayPathObservationTransport) Valid() bool {
+	switch e {
+	case RelayPathObservationTransportDirect:
+		return true
+	case RelayPathObservationTransportNativeRelay:
+		return true
+	case RelayPathObservationTransportUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RelayPolicyStatusApplication.
+const (
+	RelayPolicyStatusApplicationApplied      RelayPolicyStatusApplication = "applied"
+	RelayPolicyStatusApplicationDisagreement RelayPolicyStatusApplication = "disagreement"
+	RelayPolicyStatusApplicationPending      RelayPolicyStatusApplication = "pending"
+	RelayPolicyStatusApplicationStale        RelayPolicyStatusApplication = "stale"
+	RelayPolicyStatusApplicationUnconfigured RelayPolicyStatusApplication = "unconfigured"
+	RelayPolicyStatusApplicationUnknown      RelayPolicyStatusApplication = "unknown"
+	RelayPolicyStatusApplicationUnsupported  RelayPolicyStatusApplication = "unsupported"
+)
+
+// Valid indicates whether the value is a known member of the RelayPolicyStatusApplication enum.
+func (e RelayPolicyStatusApplication) Valid() bool {
+	switch e {
+	case RelayPolicyStatusApplicationApplied:
+		return true
+	case RelayPolicyStatusApplicationDisagreement:
+		return true
+	case RelayPolicyStatusApplicationPending:
+		return true
+	case RelayPolicyStatusApplicationStale:
+		return true
+	case RelayPolicyStatusApplicationUnconfigured:
+		return true
+	case RelayPolicyStatusApplicationUnknown:
+		return true
+	case RelayPolicyStatusApplicationUnsupported:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RelayPolicyStatusTransport.
+const (
+	RelayPolicyStatusTransportDirect      RelayPolicyStatusTransport = "direct"
+	RelayPolicyStatusTransportNativeRelay RelayPolicyStatusTransport = "native_relay"
+	RelayPolicyStatusTransportUnknown     RelayPolicyStatusTransport = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the RelayPolicyStatusTransport enum.
+func (e RelayPolicyStatusTransport) Valid() bool {
+	switch e {
+	case RelayPolicyStatusTransportDirect:
+		return true
+	case RelayPolicyStatusTransportNativeRelay:
+		return true
+	case RelayPolicyStatusTransportUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ResourceType.
 const (
 	ResourceTypeDomain ResourceType = "domain"
@@ -4988,6 +5144,38 @@ type RelayPairPreview struct {
 	Unsupported bool                  `json:"unsupported"`
 }
 
+// RelayPathObservation defines model for RelayPathObservation.
+type RelayPathObservation struct {
+	Attempt           uint64 `json:"attempt"`
+	CatalogGeneration uint64 `json:"catalog_generation"`
+
+	// Current False after expiry
+	Current     bool                       `json:"current"`
+	Digest      string                     `json:"digest"`
+	ExpiresAt   time.Time                  `json:"expires_at"`
+	LocalPeerId string                     `json:"local_peer_id"`
+	ObservedAt  time.Time                  `json:"observed_at"`
+	Reason      RelayPathObservationReason `json:"reason"`
+	RelayId     string                     `json:"relay_id"`
+
+	// RemotePeerId Empty for home registration.
+	RemotePeerId          string                        `json:"remote_peer_id"`
+	ReselectionGeneration uint64                        `json:"reselection_generation"`
+	Revision              uint64                        `json:"revision"`
+	Sequence              uint64                        `json:"sequence"`
+	State                 RelayPathObservationState     `json:"state"`
+	Transport             RelayPathObservationTransport `json:"transport"`
+}
+
+// RelayPathObservationReason defines model for RelayPathObservation.Reason.
+type RelayPathObservationReason string
+
+// RelayPathObservationState defines model for RelayPathObservation.State.
+type RelayPathObservationState string
+
+// RelayPathObservationTransport defines model for RelayPathObservation.Transport.
+type RelayPathObservationTransport string
+
 // RelayPeerSelector defines model for RelayPeerSelector.
 type RelayPeerSelector struct {
 	GroupIds []string `json:"group_ids"`
@@ -5023,6 +5211,28 @@ type RelayPolicyPreview struct {
 	// Truncated Preview exceeded its bounded result count; narrow the target scope.
 	Truncated bool `json:"truncated"`
 }
+
+// RelayPolicyStatus defines model for RelayPolicyStatus.
+type RelayPolicyStatus struct {
+	Application RelayPolicyStatusApplication `json:"application"`
+	Endpoints   []RelayPathObservation       `json:"endpoints"`
+
+	// Healthy Applied configuration alone never establishes working transport.
+	Healthy bool   `json:"healthy"`
+	PeerA   string `json:"peer_a"`
+
+	// PeerB Empty identifies home-profile status independently of pair paths.
+	PeerB     string                     `json:"peer_b"`
+	Policy    *RelayEffectivePolicy      `json:"policy,omitempty"`
+	RelayId   string                     `json:"relay_id"`
+	Transport RelayPolicyStatusTransport `json:"transport"`
+}
+
+// RelayPolicyStatusApplication defines model for RelayPolicyStatus.Application.
+type RelayPolicyStatusApplication string
+
+// RelayPolicyStatusTransport defines model for RelayPolicyStatus.Transport.
+type RelayPolicyStatusTransport string
 
 // RelayRetryRequest defines model for RelayRetryRequest.
 type RelayRetryRequest struct {
@@ -6466,6 +6676,15 @@ type DeleteApiRelayPairPoliciesResourceIdParams struct {
 
 // GetApiRelayPoliciesEffectiveParams defines parameters for GetApiRelayPoliciesEffective.
 type GetApiRelayPoliciesEffectiveParams struct {
+	// PeerA Local or remote account peer ID.
+	PeerA string `form:"peer_a" json:"peer_a"`
+
+	// PeerB Other peer ID; omit for home scope. Pair orientation is irrelevant.
+	PeerB *string `form:"peer_b,omitempty" json:"peer_b,omitempty"`
+}
+
+// GetApiRelayPoliciesStatusParams defines parameters for GetApiRelayPoliciesStatus.
+type GetApiRelayPoliciesStatusParams struct {
 	// PeerA Local or remote account peer ID.
 	PeerA string `form:"peer_a" json:"peer_a"`
 

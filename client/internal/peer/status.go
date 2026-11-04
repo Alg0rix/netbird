@@ -23,6 +23,7 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
+	rp "github.com/netbirdio/netbird/shared/management/relaypolicy"
 	relayClient "github.com/netbirdio/netbird/shared/relay/client"
 )
 
@@ -65,6 +66,7 @@ type RouterState struct {
 
 // State contains the latest state of a peer
 type State struct {
+	RelayPolicy                *RelayPolicyObservation
 	Mux                        *sync.RWMutex
 	IP                         string
 	IPv6                       string
@@ -176,6 +178,7 @@ type NSGroupState struct {
 
 // FullStatus contains the full state held by the Status instance
 type FullStatus struct {
+	RelayPolicies         []RelayPolicyObservation
 	Peers                 []State
 	ManagementState       ManagementState
 	SignalState           SignalState
@@ -262,12 +265,13 @@ func (s *StatusChangeSubscription) deliver(snapshot *routerSnapshot, block bool)
 // every private-service request) don't contend against each other.
 // Pure read methods take RLock; anything that mutates state takes Lock.
 type Status struct {
-	mux              sync.RWMutex
-	muxRelays        sync.RWMutex
-	peers            map[string]State
-	ipToKey          map[string]string
-	activeRoutePeers map[route.HAUniqueID]string
-	changeNotify     map[string]map[string]*StatusChangeSubscription // map[peerID]map[subscriptionID]*StatusChangeSubscription
+	relayPolicyObservations []RelayPolicyObservation
+	mux                     sync.RWMutex
+	muxRelays               sync.RWMutex
+	peers                   map[string]State
+	ipToKey                 map[string]string
+	activeRoutePeers        map[route.HAUniqueID]string
+	changeNotify            map[string]map[string]*StatusChangeSubscription // map[peerID]map[subscriptionID]*StatusChangeSubscription
 	// routerSeq stamps router-state snapshots, see routerSnapshot
 	routerSeq           uint64
 	signalState         bool
@@ -1278,8 +1282,16 @@ func (d *Status) GetFullStatus() FullStatus {
 	defer d.mux.RUnlock()
 
 	fullStatus.LocalPeerState = d.localPeer
+	fullStatus.RelayPolicies = slices.Clone(d.relayPolicyObservations)
+	observations := make(map[rp.PeerID]RelayPolicyObservation, len(d.relayPolicyObservations))
+	for _, o := range d.relayPolicyObservations {
+		observations[o.RemotePeerKey] = o
+	}
 
 	for _, status := range d.peers {
+		if o, ok := observations[rp.PeerID(status.PubKey)]; ok {
+			status.RelayPolicy = &o
+		}
 		fullStatus.Peers = append(fullStatus.Peers, status)
 	}
 
@@ -1674,9 +1686,15 @@ func (fs FullStatus) ToProto() *proto.FullStatus {
 			Latency:                    durationpb.New(peerState.Latency),
 			SshHostKey:                 peerState.SSHHostKey,
 		}
+		if peerState.RelayPolicy != nil {
+			pbPeerState.RelayPolicy = peerState.RelayPolicy.Proto()
+		}
 		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
 	}
 
+	for _, observation := range fs.RelayPolicies {
+		pbFullStatus.RelayPolicyStatuses = append(pbFullStatus.RelayPolicyStatuses, observation.Proto())
+	}
 	for _, relayState := range fs.Relays {
 		pbRelayState := &proto.RelayState{
 			URI:       relayState.URI,
@@ -1712,4 +1730,15 @@ func (fs FullStatus) ToProto() *proto.FullStatus {
 	pbFullStatus.Events = fs.Events
 
 	return &pbFullStatus
+}
+
+// SetRelayPolicyObservations publishes immutable local diagnostics, including withheld peers.
+func (d *Status) SetRelayPolicyObservations(observations []RelayPolicyObservation) {
+	d.mux.Lock()
+	changed := !slices.Equal(d.relayPolicyObservations, observations)
+	d.relayPolicyObservations = slices.Clone(observations)
+	d.mux.Unlock()
+	if changed {
+		d.notifyStateChange()
+	}
 }
