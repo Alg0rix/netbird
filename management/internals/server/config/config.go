@@ -94,6 +94,8 @@ type TURNConfig struct {
 
 // Relay configuration type
 type Relay struct {
+	// Catalog is operator publication input, not replica-local policy authority.
+	Catalog        []types.RelayCatalogEntry
 	Addresses      []string
 	CredentialsTTL util.Duration
 	Secret         string
