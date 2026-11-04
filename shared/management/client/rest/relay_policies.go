@@ -157,7 +157,7 @@ func (a *RelayPoliciesAPI) ListPairPolicies(ctx context.Context, options RelayLi
 }
 
 // GetPairPolicy reads an account-owned symmetric pair policy.
-func (a *RelayPoliciesAPI) GetPairPolicy(ctx context.Context, id rp.RelayPolicyID) (*api.RelayPairPolicy, error) {
+func (a *RelayPoliciesAPI) GetPairPolicy(ctx context.Context, id rp.PolicyID) (*api.RelayPairPolicy, error) {
 	return relayRequest[api.RelayPairPolicy](ctx, a.c, http.MethodGet, "/api/relay-pair-policies/"+url.PathEscape(string(id)), nil, nil)
 }
 
@@ -167,12 +167,12 @@ func (a *RelayPoliciesAPI) CreatePairPolicy(ctx context.Context, request api.Rel
 }
 
 // UpdatePairPolicy replaces an account pair policy using optimistic concurrency.
-func (a *RelayPoliciesAPI) UpdatePairPolicy(ctx context.Context, id rp.RelayPolicyID, request api.RelayPairPolicyMutation) (*api.RelayPolicyConfiguration, error) {
+func (a *RelayPoliciesAPI) UpdatePairPolicy(ctx context.Context, id rp.PolicyID, request api.RelayPairPolicyMutation) (*api.RelayPolicyConfiguration, error) {
 	return relayRequest[api.RelayPolicyConfiguration](ctx, a.c, http.MethodPut, "/api/relay-pair-policies/"+url.PathEscape(string(id)), request, nil)
 }
 
 // DeletePairPolicy deletes an account pair policy using optimistic concurrency.
-func (a *RelayPoliciesAPI) DeletePairPolicy(ctx context.Context, id rp.RelayPolicyID, revision, generation uint64) (*api.RelayPolicyConfiguration, error) {
+func (a *RelayPoliciesAPI) DeletePairPolicy(ctx context.Context, id rp.PolicyID, revision, generation uint64) (*api.RelayPolicyConfiguration, error) {
 	return relayRequest[api.RelayPolicyConfiguration](ctx, a.c, http.MethodDelete, "/api/relay-pair-policies/"+url.PathEscape(string(id)), nil, relayRevisionQuery(revision, generation))
 }
 

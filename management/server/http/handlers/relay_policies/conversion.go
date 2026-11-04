@@ -86,7 +86,7 @@ func pairPolicy(value rp.RelayPairPolicy) api.RelayPairPolicy {
 }
 
 func fromPairPolicy(value api.RelayPairPolicy, account rp.AccountID) rp.RelayPairPolicy {
-	return rp.RelayPairPolicy{ID: rp.RelayPolicyID(value.Id), AccountID: account, Name: value.Name, Priority: value.Priority, Enabled: value.Enabled, Source: fromSelector(value.Source), Destination: fromSelector(value.Destination), Constraints: fromConstraints(value.Constraints)}
+	return rp.RelayPairPolicy{ID: rp.PolicyID(value.Id), AccountID: account, Name: value.Name, Priority: value.Priority, Enabled: value.Enabled, Source: fromSelector(value.Source), Destination: fromSelector(value.Destination), Constraints: fromConstraints(value.Constraints)}
 }
 
 func configuration(value rp.Configuration, generation uint64) api.RelayPolicyConfiguration {

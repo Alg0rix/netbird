@@ -6,14 +6,14 @@ import shared "github.com/netbirdio/netbird/shared/management/relaypolicy"
 type ResolveOptions = shared.ResolveOptions
 
 // Validate checks ownership and references without granting connectivity.
-func Validate(input shared.RelayPolicyInput) error { return shared.Validate(input) }
+func Validate(input shared.Input) error { return shared.Validate(input) }
 
 // ResolvePair resolves an already ACL-authorized pair symmetrically.
-func ResolvePair(input shared.RelayPolicyInput, a, b shared.PeerID, options ResolveOptions) (*shared.ResolvedRelayPolicy, error) {
+func ResolvePair(input shared.Input, a, b shared.PeerID, options ResolveOptions) (*shared.ResolvedRelayPolicy, error) {
 	return shared.ResolvePair(input, a, b, options)
 }
 
 // ResolveHome resolves home choices independently of foreign pair transport.
-func ResolveHome(input shared.RelayPolicyInput, peer shared.PeerID, options ResolveOptions) (*shared.ResolvedRelayPolicy, error) {
+func ResolveHome(input shared.Input, peer shared.PeerID, options ResolveOptions) (*shared.ResolvedRelayPolicy, error) {
 	return shared.ResolveHome(input, peer, options)
 }

@@ -78,7 +78,7 @@ func decodeRelayPathReports(ctx context.Context, repository store.Store, account
 		}
 		seen[remoteID] = struct{}{}
 		reports = append(reports, rp.PathReport{
-			RemotePeerID: remoteID, Revision: report.Revision, Digest: rp.RelayPolicyDigest(report.Digest),
+			RemotePeerID: remoteID, Revision: report.Revision, Digest: rp.Digest(report.Digest),
 			CatalogGeneration: report.CatalogGeneration, ReselectionGeneration: report.ReselectionGeneration,
 			Sequence: report.Sequence, Attempt: report.Attempt, Transport: transport,
 			RelayID: rp.RelayID(report.RelayId), State: state, Reason: rp.FailureReason(report.Reason),

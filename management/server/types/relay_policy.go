@@ -18,7 +18,7 @@ type RelayID = relaypolicy.RelayID
 type RelayGroupID = relaypolicy.RelayGroupID
 
 // RelayPolicyID is the shared relay-policy domain type.
-type RelayPolicyID = relaypolicy.RelayPolicyID
+type RelayPolicyID = relaypolicy.PolicyID
 
 // RelayRuleID is the shared relay-policy domain type.
 type RelayRuleID = relaypolicy.RelayRuleID
@@ -30,10 +30,10 @@ type RelayProfileID = relaypolicy.RelayProfileID
 type RelayEndpoint = relaypolicy.RelayEndpoint
 
 // RelayPolicyDigest is the shared relay-policy domain type.
-type RelayPolicyDigest = relaypolicy.RelayPolicyDigest
+type RelayPolicyDigest = relaypolicy.Digest
 
 // RelayPolicyState is the shared relay-policy domain type.
-type RelayPolicyState = relaypolicy.RelayPolicyState
+type RelayPolicyState = relaypolicy.State
 
 // RelayCatalog is the shared relay-policy domain type.
 type RelayCatalog = relaypolicy.RelayCatalog
@@ -63,10 +63,10 @@ type RelayPairPolicy = relaypolicy.RelayPairPolicy
 type RelayPeer = relaypolicy.RelayPeer
 
 // RelayPolicyInput is the shared relay-policy domain type.
-type RelayPolicyInput = relaypolicy.RelayPolicyInput
+type RelayPolicyInput = relaypolicy.Input
 
 // RelayPolicyContribution is the shared relay-policy domain type.
-type RelayPolicyContribution = relaypolicy.RelayPolicyContribution
+type RelayPolicyContribution = relaypolicy.Contribution
 
 // ResolvedRelayPolicy is the shared relay-policy domain type.
 type ResolvedRelayPolicy = relaypolicy.ResolvedRelayPolicy

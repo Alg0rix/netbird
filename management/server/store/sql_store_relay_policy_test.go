@@ -73,9 +73,9 @@ func TestRelayConfigurationPersistenceAndAccountCopy(t *testing.T) {
 	loaded, err := s.GetAccount(ctx, "relay-account")
 	require.NoError(t, err)
 	assert.Equal(t, saved, loaded.RelaySnapshot().Configuration, "account loader must retain all relay relations")
-	copy := loaded.Copy()
-	copy.RelayGroups[0].RelayIDs[0] = "other"
-	copy.RelayPairPolicies[0].Constraints.Allow.GroupIDs[0] = "other"
+	copied := loaded.Copy()
+	copied.RelayGroups[0].RelayIDs[0] = "other"
+	copied.RelayPairPolicies[0].Constraints.Allow.GroupIDs[0] = "other"
 	assert.Equal(t, types.RelayID("a"), loaded.RelayGroups[0].RelayIDs[0], "account copy owns its relay membership slice")
 	assert.Equal(t, types.RelayGroupID("region"), loaded.RelayPairPolicies[0].Constraints.Allow.GroupIDs[0], "account copy owns nested selectors")
 	assert.Equal(t, empty.NetworkSerial+1, loaded.Network.Serial, "policy relation and network serial advance in one commit")

@@ -42,7 +42,7 @@ func ToProtocolRelayPolicy(policy *rp.ResolvedRelayPolicy) *proto.RelayPolicy {
 	return result
 }
 
-func toRelayPolicyState(state rp.RelayPolicyState) proto.RelayPolicyState {
+func toRelayPolicyState(state rp.State) proto.RelayPolicyState {
 	switch state {
 	case rp.RelayPolicyReady:
 		return proto.RelayPolicyState_RelayPolicyStateReady
@@ -59,7 +59,7 @@ func toRelayPolicyState(state rp.RelayPolicyState) proto.RelayPolicyState {
 // Callers must reject the affected connection when a present message returns an error.
 func FromProtocolRelayPolicy(policy *proto.RelayPolicy) (*rp.ResolvedRelayPolicy, error) {
 	if policy == nil {
-		return nil, nil
+		return nil, nil //nolint:nilnil // Absence preserves unmanaged connection behavior.
 	}
 	state, err := fromRelayPolicyState(policy.State)
 	if err != nil {
@@ -76,7 +76,7 @@ func FromProtocolRelayPolicy(policy *proto.RelayPolicy) (*rp.ResolvedRelayPolicy
 	}
 	result := &rp.ResolvedRelayPolicy{
 		State: state, Revision: policy.Revision, CatalogGeneration: policy.CatalogGeneration,
-		ReselectionGeneration: policy.ReselectionGeneration, Digest: rp.RelayPolicyDigest(policy.Digest),
+		ReselectionGeneration: policy.ReselectionGeneration, Digest: rp.Digest(policy.Digest),
 		ForceRelay: policy.ForceRelay, PreferenceRule: rp.RelayRuleID(policy.PreferenceRule),
 		Eliminated: stringsToRelayIDs(policy.Eliminated),
 	}
@@ -120,14 +120,14 @@ func FromProtocolRelayPolicy(policy *proto.RelayPolicy) (*rp.ResolvedRelayPolicy
 		if contributor == nil || len(contributor.Eliminated) > 4096 {
 			return nil, fmt.Errorf("invalid relay policy contributor")
 		}
-		result.Contributors = append(result.Contributors, rp.RelayPolicyContribution{
+		result.Contributors = append(result.Contributors, rp.Contribution{
 			ID: rp.RelayRuleID(contributor.Id), Revision: contributor.Revision, Eliminated: stringsToRelayIDs(contributor.Eliminated),
 		})
 	}
 	return result, nil
 }
 
-func fromRelayPolicyState(state proto.RelayPolicyState) (rp.RelayPolicyState, error) {
+func fromRelayPolicyState(state proto.RelayPolicyState) (rp.State, error) {
 	switch state {
 	case proto.RelayPolicyState_RelayPolicyStateReady:
 		return rp.RelayPolicyReady, nil
@@ -205,7 +205,7 @@ func EncodePairRelayPolicies(peers map[string]*nmdata.Peer, policies map[rp.Peer
 
 func decodePairRelayPolicies(policies map[string]*proto.RelayPolicy, peers map[string]*nmdata.Peer) (map[rp.PeerID]*rp.ResolvedRelayPolicy, error) {
 	if len(policies) == 0 {
-		return nil, nil
+		return nil, nil //nolint:nilnil // An absent component has no managed pair instructions.
 	}
 	result := make(map[rp.PeerID]*rp.ResolvedRelayPolicy, len(policies))
 	for key, policy := range policies {

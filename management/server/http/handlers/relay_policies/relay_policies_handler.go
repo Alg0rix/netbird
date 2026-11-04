@@ -183,7 +183,7 @@ func (h *handler) retry(w http.ResponseWriter, r *http.Request) {
 	if request.PeerB != nil {
 		b = rp.PeerID(*request.PeerB)
 	}
-	result, err := h.manager.Retry(r.Context(), accountID, userID, rp.PeerID(request.PeerA), b, rp.RelayPolicyDigest(request.ExpectedDigest))
+	result, err := h.manager.Retry(r.Context(), accountID, userID, rp.PeerID(request.PeerA), b, rp.Digest(request.ExpectedDigest))
 	if err != nil {
 		writeError(w, r, err)
 		return

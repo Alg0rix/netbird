@@ -14,7 +14,7 @@ import (
 func (nmd *NetworkMapData) policyResolver() (*relaypolicy.Resolver, error) {
 	nmd.relayResolverOnce.Do(func() {
 		snapshot := nmd.RelayPolicies
-		input := relaypolicy.RelayPolicyInput{AccountID: snapshot.AccountID, Catalog: snapshot.Catalog,
+		input := relaypolicy.Input{AccountID: snapshot.AccountID, Catalog: snapshot.Catalog,
 			Groups: snapshot.Groups, Profiles: snapshot.Profiles, Policies: snapshot.Policies, Revision: snapshot.Revision}
 		memberships := make(map[string][]relaypolicy.PeerGroupID, len(nmd.Peers))
 		for id, group := range nmd.Groups {

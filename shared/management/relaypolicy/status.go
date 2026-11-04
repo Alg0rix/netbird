@@ -58,7 +58,7 @@ const (
 type PathReport struct {
 	RemotePeerID          PeerID
 	Revision              uint64
-	Digest                RelayPolicyDigest
+	Digest                Digest
 	CatalogGeneration     uint64
 	ReselectionGeneration uint64
 	Sequence              uint64

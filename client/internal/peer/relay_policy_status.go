@@ -12,7 +12,7 @@ type RelayPolicyObservation struct {
 	RemotePeerKey         rp.PeerID
 	DesiredRevision       uint64
 	AppliedRevision       uint64
-	Digest                rp.RelayPolicyDigest
+	Digest                rp.Digest
 	CatalogGeneration     uint64
 	ReselectionGeneration uint64
 	Attempt               uint64

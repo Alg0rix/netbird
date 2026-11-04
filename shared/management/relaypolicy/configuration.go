@@ -35,7 +35,7 @@ func advanceEntityRevisions(candidate *Configuration, current Configuration) {
 		}
 		candidate.Profiles[i] = profile
 	}
-	policies := make(map[RelayPolicyID]RelayPairPolicy, len(current.Policies))
+	policies := make(map[PolicyID]RelayPairPolicy, len(current.Policies))
 	for _, policy := range current.Policies {
 		policies[policy.ID] = policy
 	}

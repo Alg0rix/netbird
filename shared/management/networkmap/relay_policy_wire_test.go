@@ -18,12 +18,12 @@ import (
 func wireRelayPolicy() *rp.ResolvedRelayPolicy {
 	return &rp.ResolvedRelayPolicy{
 		State: rp.RelayPolicyReady, Revision: 4, CatalogGeneration: 2, ReselectionGeneration: 3,
-		Digest: rp.RelayPolicyDigest(strings.Repeat("a", 64)), ForceRelay: true,
+		Digest: rp.Digest(strings.Repeat("a", 64)), ForceRelay: true,
 		Tiers: [][]rp.RelayCatalogEntry{
 			{{ID: "a", Endpoint: "rels://a.example:443", InstanceEndpoint: "rels://a.example:443", Active: true}},
 			{{ID: "b", Endpoint: "rels://b.example:443", InstanceEndpoint: "rels://b.example:443", Active: true}},
 		},
-		Contributors: []rp.RelayPolicyContribution{{ID: "pair", Revision: 4}}, PreferenceRule: "pair",
+		Contributors: []rp.Contribution{{ID: "pair", Revision: 4}}, PreferenceRule: "pair",
 	}
 }
 

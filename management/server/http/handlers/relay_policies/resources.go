@@ -127,11 +127,12 @@ func mutateResource(w http.ResponseWriter, r *http.Request, candidate *rp.Config
 		value := fromGroup(request.Resource, account)
 		value.ID = rp.RelayGroupID(resourceID)
 		index := slices.IndexFunc(candidate.Groups, func(existing rp.RelayGroup) bool { return existing.ID == value.ID })
-		if r.Method == http.MethodPost {
+		switch {
+		case r.Method == http.MethodPost:
 			candidate.Groups = append(candidate.Groups, value)
-		} else if index < 0 {
+		case index < 0:
 			return 0, 0, status.Errorf(status.NotFound, "relay group not found")
-		} else {
+		default:
 			candidate.Groups[index] = value
 		}
 		return request.ExpectedRevision, request.CatalogGeneration, nil
@@ -147,11 +148,12 @@ func mutateResource(w http.ResponseWriter, r *http.Request, candidate *rp.Config
 		value := fromProfile(request.Resource, account)
 		value.ID = rp.RelayProfileID(resourceID)
 		index := slices.IndexFunc(candidate.Profiles, func(existing rp.RelayHomeProfile) bool { return existing.ID == value.ID })
-		if r.Method == http.MethodPost {
+		switch {
+		case r.Method == http.MethodPost:
 			candidate.Profiles = append(candidate.Profiles, value)
-		} else if index < 0 {
+		case index < 0:
 			return 0, 0, status.Errorf(status.NotFound, "home profile not found")
-		} else {
+		default:
 			candidate.Profiles[index] = value
 		}
 		return request.ExpectedRevision, request.CatalogGeneration, nil
@@ -165,13 +167,14 @@ func mutateResource(w http.ResponseWriter, r *http.Request, candidate *rp.Config
 			return 0, 0, err
 		}
 		value := fromPairPolicy(request.Resource, account)
-		value.ID = rp.RelayPolicyID(resourceID)
+		value.ID = rp.PolicyID(resourceID)
 		index := slices.IndexFunc(candidate.Policies, func(existing rp.RelayPairPolicy) bool { return existing.ID == value.ID })
-		if r.Method == http.MethodPost {
+		switch {
+		case r.Method == http.MethodPost:
 			candidate.Policies = append(candidate.Policies, value)
-		} else if index < 0 {
+		case index < 0:
 			return 0, 0, status.Errorf(status.NotFound, "pair policy not found")
-		} else {
+		default:
 			candidate.Policies[index] = value
 		}
 		return request.ExpectedRevision, request.CatalogGeneration, nil

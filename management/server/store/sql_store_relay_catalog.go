@@ -46,7 +46,7 @@ func getRelayCatalog(tx *gorm.DB) (types.RelayCatalog, error) {
 	if err != nil {
 		return types.RelayCatalog{}, err
 	}
-	return types.RelayCatalog{Generation: publication.Generation, Entries: publication.Entries}, nil
+	return types.RelayCatalog(publication), nil
 }
 
 // InitializeRelayCatalog creates only an absent catalog and never republishes local configuration.

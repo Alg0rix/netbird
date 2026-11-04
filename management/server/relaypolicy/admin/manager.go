@@ -219,7 +219,7 @@ func (m *Manager) Effective(ctx context.Context, accountID, userID string, a, b 
 }
 
 // Retry persists a rate-limited reconciliation directive without modifying relay permissions.
-func (m *Manager) Retry(ctx context.Context, accountID, userID string, a, b sharedrelay.PeerID, expectedDigest sharedrelay.RelayPolicyDigest) (*RetryResult, error) {
+func (m *Manager) Retry(ctx context.Context, accountID, userID string, a, b sharedrelay.PeerID, expectedDigest sharedrelay.Digest) (*RetryResult, error) {
 	if err := m.authorize(ctx, accountID, userID, operations.Update); err != nil {
 		return nil, err
 	}

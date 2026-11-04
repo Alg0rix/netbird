@@ -59,6 +59,6 @@ func TestRelayObservationRevisionMetadataDoesNotMutateInstructions(t *testing.T)
 	conn.UpdateRelayPolicyRevision(8)
 	o := conn.RelayPolicyObservation()
 	assert.Equal(t, uint64(8), o.DesiredRevision, "revision-only changes must refresh diagnostics")
-	assert.Equal(t, rp.RelayPolicyDigest("d"), o.Digest, "revision-only changes must preserve transport identity")
+	assert.Equal(t, rp.Digest("d"), o.Digest, "revision-only changes must preserve transport identity")
 	assert.Equal(t, uint64(7), conn.config.RelayPolicy.Revision, "immutable configured snapshot must stay detached")
 }

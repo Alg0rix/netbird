@@ -182,7 +182,7 @@ func TestDigestFencesAndCopies(t *testing.T) {
 	retired, err := ResolvePair(input, "x", "y", ResolveOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, types.RelayID("b"), retired.Tiers[0][0].ID, "retirement removes A without invalidating stored references")
-	copy := input.Policies[0].Copy()
-	copy.Constraints.Allow.GroupIDs[0] = "other"
+	copied := input.Policies[0].Copy()
+	copied.Constraints.Allow.GroupIDs[0] = "other"
 	assert.Equal(t, types.RelayGroupID("regional"), input.Policies[0].Constraints.Allow.GroupIDs[0], "copies must not alias account state")
 }

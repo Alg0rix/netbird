@@ -307,7 +307,7 @@ func (s *SqlStore) getRelaySnapshotForAccount(ctx context.Context, accountID typ
 		return sharedrelay.Snapshot{}, err
 	}
 	snapshot, err := relaypolicydb.ReadSnapshot(ctx, func(ctx context.Context, sql string, args ...any) (relaypolicydb.Rows, error) {
-		return tx.Query(ctx, sql, args...)
+		return tx.Query(ctx, sql, args...) //nolint:sqlclosecheck // ReadSnapshot owns and closes the returned rows.
 	}, accountID)
 	if err != nil {
 		if rollbackErr := tx.Rollback(ctx); rollbackErr != nil {

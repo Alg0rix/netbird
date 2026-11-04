@@ -19,7 +19,7 @@ type ResolveOptions struct {
 type Resolver struct{ snapshot *snapshot }
 
 // NewResolver detaches and validates account data once for concurrent read-only resolution.
-func NewResolver(input RelayPolicyInput) (*Resolver, error) {
+func NewResolver(input Input) (*Resolver, error) {
 	config := Configuration{Groups: input.Groups, Profiles: input.Profiles, Policies: input.Policies}.Copy()
 	input.Groups, input.Profiles, input.Policies = config.Groups, config.Profiles, config.Policies
 	input.PeerGroups = slices.Clone(input.PeerGroups)
@@ -45,7 +45,7 @@ func (r *Resolver) ResolveHome(peer PeerID, options ResolveOptions) (*ResolvedRe
 }
 
 type snapshot struct {
-	input   RelayPolicyInput
+	input   Input
 	catalog map[RelayID]RelayCatalogEntry
 	groups  map[RelayGroupID]RelayGroup
 	peers   map[PeerID]RelayPeer
@@ -62,12 +62,12 @@ type relaySet map[RelayID]struct{}
 
 // Validate checks ownership and all references without activating policies or granting access.
 // Retired relay references remain valid so runtime resolution can report a blocked set.
-func Validate(input RelayPolicyInput) error {
+func Validate(input Input) error {
 	_, err := newSnapshot(input)
 	return err
 }
 
-func newSnapshot(input RelayPolicyInput) (*snapshot, error) {
+func newSnapshot(input Input) (*snapshot, error) {
 	if input.AccountID == "" {
 		return nil, fmt.Errorf("missing relay policy account")
 	}
@@ -116,7 +116,7 @@ func newSnapshot(input RelayPolicyInput) (*snapshot, error) {
 }
 
 func (s *snapshot) validateRules() error {
-	policyIDs := make(map[RelayPolicyID]struct{})
+	policyIDs := make(map[PolicyID]struct{})
 	for _, p := range s.input.Policies {
 		if p.ID == "" || p.AccountID != s.input.AccountID {
 			return fmt.Errorf("invalid pair policy account or identity")
@@ -223,7 +223,7 @@ func (s *snapshot) validateConstraints(c RelayConstraints) error {
 
 // ResolvePair resolves an already ACL-authorized pair symmetrically.
 // A nil result preserves legacy behavior; callers must never use resolution to grant access.
-func ResolvePair(input RelayPolicyInput, a, b PeerID, options ResolveOptions) (*ResolvedRelayPolicy, error) {
+func ResolvePair(input Input, a, b PeerID, options ResolveOptions) (*ResolvedRelayPolicy, error) {
 	s, err := newSnapshot(input)
 	if err != nil {
 		return nil, err
@@ -257,7 +257,7 @@ func (s *snapshot) resolvePair(a, b PeerID, options ResolveOptions) (*ResolvedRe
 }
 
 // ResolveHome resolves only home registration choices, leaving foreign pair transport unchanged.
-func ResolveHome(input RelayPolicyInput, peerID PeerID, options ResolveOptions) (*ResolvedRelayPolicy, error) {
+func ResolveHome(input Input, peerID PeerID, options ResolveOptions) (*ResolvedRelayPolicy, error) {
 	s, err := newSnapshot(input)
 	if err != nil {
 		return nil, err
@@ -326,7 +326,7 @@ func sortedIDs(set relaySet) []RelayID {
 
 func (s *snapshot) resolve(rules []rule, peers []PeerID, options ResolveOptions) (*ResolvedRelayPolicy, error) {
 	if len(rules) == 0 {
-		return nil, nil
+		return nil, nil //nolint:nilnil // Absence distinguishes unmanaged peers from blocked policies.
 	}
 	slices.SortFunc(rules, func(a, b rule) int {
 		if a.priority < b.priority {
@@ -359,7 +359,7 @@ func (s *snapshot) resolve(rules []rule, peers []PeerID, options ResolveOptions)
 				eliminated[id] = struct{}{}
 			}
 		}
-		result.Contributors = append(result.Contributors, RelayPolicyContribution{
+		result.Contributors = append(result.Contributors, Contribution{
 			ID: r.id, Revision: r.revision, Eliminated: sortedIDs(removed),
 		})
 		result.ForceRelay = result.ForceRelay || r.constraints.ForceRelay
@@ -391,7 +391,7 @@ func (s *snapshot) resolve(rules []rule, peers []PeerID, options ResolveOptions)
 		return nil, fmt.Errorf("encode resolved relay policy: %w", err)
 	}
 	digest := sha256.Sum256(payload)
-	result.Digest = RelayPolicyDigest(hex.EncodeToString(digest[:]))
+	result.Digest = Digest(hex.EncodeToString(digest[:]))
 	return result, nil
 }
 

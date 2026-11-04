@@ -8,7 +8,7 @@ import (
 )
 
 func TestResolverResultsDoNotAliasSnapshot(t *testing.T) {
-	input := RelayPolicyInput{AccountID: "account", Catalog: RelayCatalog{Entries: []RelayCatalogEntry{{ID: "a", Endpoint: "rels://a.example:443", Aliases: []RelayEndpoint{"rels://alias.example:443"}, Active: true}}},
+	input := Input{AccountID: "account", Catalog: RelayCatalog{Entries: []RelayCatalogEntry{{ID: "a", Endpoint: "rels://a.example:443", Aliases: []RelayEndpoint{"rels://alias.example:443"}, Active: true}}},
 		Peers:    []RelayPeer{{ID: "x", AccountID: "account"}, {ID: "y", AccountID: "account"}},
 		Policies: []RelayPairPolicy{{ID: "pair", AccountID: "account", Enabled: true, Source: RelaySelector{PeerIDs: []PeerID{"x"}}, Destination: RelaySelector{PeerIDs: []PeerID{"y"}}, Constraints: RelayConstraints{Allow: &RelaySelection{RelayIDs: []RelayID{"a"}}}}}}
 	resolver, err := NewResolver(input)

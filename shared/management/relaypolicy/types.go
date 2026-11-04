@@ -16,24 +16,24 @@ type (
 	RelayID string
 	// RelayGroupID identifies an account-owned set of relays.
 	RelayGroupID string
-	// RelayPolicyID identifies a symmetric pair rule.
-	RelayPolicyID string
+	// PolicyID identifies a symmetric pair rule.
+	PolicyID string
 	// RelayRuleID identifies a contributing home profile or pair policy.
 	RelayRuleID string
 	// RelayProfileID identifies a home-relay profile.
 	RelayProfileID string
 	// RelayEndpoint is a canonical, operator-approved relay URL.
 	RelayEndpoint string
-	// RelayPolicyDigest identifies the complete effective transport instructions.
-	RelayPolicyDigest string
-	// RelayPolicyState distinguishes usable choices from an empty restriction.
-	RelayPolicyState string
+	// Digest identifies the complete effective transport instructions.
+	Digest string
+	// State distinguishes usable choices from an empty restriction.
+	State string
 )
 
 const (
-	RelayPolicyReady       RelayPolicyState = "ready"
-	RelayPolicyBlocked     RelayPolicyState = "blocked"
-	RelayPolicyUnsupported RelayPolicyState = "unsupported"
+	RelayPolicyReady       State = "ready"
+	RelayPolicyBlocked     State = "blocked"
+	RelayPolicyUnsupported State = "unsupported"
 )
 
 // RelayCatalog is an immutable operator publication shared by Management replicas.
@@ -98,8 +98,8 @@ type RelayHomeProfile struct {
 
 // RelayPairPolicy applies equally to both orientations of its selector pair.
 type RelayPairPolicy struct {
-	ID          RelayPolicyID `gorm:"primaryKey"`
-	AccountID   AccountID     `gorm:"index"`
+	ID          PolicyID  `gorm:"primaryKey"`
+	AccountID   AccountID `gorm:"index"`
 	Name        string
 	Revision    uint64
 	Priority    uint32
@@ -116,8 +116,8 @@ type RelayPeer struct {
 	GroupIDs  []PeerGroupID
 }
 
-// RelayPolicyInput is an account-scoped snapshot for deterministic resolution.
-type RelayPolicyInput struct {
+// Input is an account-scoped snapshot for deterministic resolution.
+type Input struct {
 	AccountID AccountID
 	Catalog   RelayCatalog
 	Groups    []RelayGroup
@@ -129,8 +129,8 @@ type RelayPolicyInput struct {
 	Revision   uint64
 }
 
-// RelayPolicyContribution records a matching rule and the relays it eliminates.
-type RelayPolicyContribution struct {
+// Contribution records a matching rule and the relays it eliminates.
+type Contribution struct {
 	ID         RelayRuleID
 	Revision   uint64
 	Eliminated []RelayID
@@ -139,14 +139,14 @@ type RelayPolicyContribution struct {
 // ResolvedRelayPolicy is present even when restrictions leave no permitted relay.
 // Its absence, represented by a nil pointer, preserves legacy transport behavior.
 type ResolvedRelayPolicy struct {
-	State                 RelayPolicyState
+	State                 State
 	Revision              uint64
 	CatalogGeneration     uint64
 	ReselectionGeneration uint64
-	Digest                RelayPolicyDigest
+	Digest                Digest
 	ForceRelay            bool
 	Tiers                 [][]RelayCatalogEntry
-	Contributors          []RelayPolicyContribution
+	Contributors          []Contribution
 	PreferenceRule        RelayRuleID
 	Eliminated            []RelayID
 }
