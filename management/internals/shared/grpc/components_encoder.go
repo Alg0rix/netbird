@@ -57,9 +57,10 @@ func EncodeNetworkMapEnvelope(in ComponentsEnvelopeInput) *proto.NetworkMapEnvel
 		return &proto.NetworkMapEnvelope{
 			Payload: &proto.NetworkMapEnvelope_Full{
 				Full: &proto.NetworkMapComponentsFull{
-					Serial:     networkSerial(c.Network),
-					Network:    toAccountNetwork(c.Network),
-					PeerConfig: in.PeerConfig,
+					Serial:          networkSerial(c.Network),
+					Network:         toAccountNetwork(c.Network),
+					PeerConfig:      in.PeerConfig,
+					HomeRelayPolicy: networkmap.ToProtocolRelayPolicy(c.HomeRelayPolicy),
 					// components.Peers may not contain the target peer
 					Peers:            []*proto.PeerCompact{toPeerCompact(in.Peer)},
 					DnsDomain:        in.DNSDomain,
@@ -114,6 +115,8 @@ func EncodeNetworkMapEnvelope(in ComponentsEnvelopeInput) *proto.NetworkMapEnvel
 		GroupIdToUserIds:    enc.encodeGroupIDToUserIDs(c.GroupIDToUserIDs),
 		AllowedUserIds:      stringSetToSlice(c.AllowedUserIDs),
 		PostureFailedPeers:  enc.encodePostureFailedPeers(c.PostureFailedPeers),
+		HomeRelayPolicy:     networkmap.ToProtocolRelayPolicy(c.HomeRelayPolicy),
+		PairRelayPolicies:   networkmap.EncodePairRelayPolicies(c.Peers, c.PairRelayPolicies, c.RouterPeers),
 	}
 
 	return &proto.NetworkMapEnvelope{
@@ -747,6 +750,7 @@ func toPeerCompact(p *nmdata.Peer) *proto.PeerCompact {
 		SshEnabled:             p.SSHEnabled,
 		SupportsIpv6:           p.SupportsIPv6(),
 		SupportsSourcePrefixes: p.SupportsSourcePrefixes(),
+		SupportsRelayPolicy:    p.HasCapability(nmdata.PeerCapabilityRelayPolicy),
 		ServerSshAllowed:       p.Meta.Flags.ServerSSHAllowed,
 		ProxyEmbedded:          p.ProxyMeta.Embedded,
 	}

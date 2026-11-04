@@ -3,6 +3,7 @@ package types
 import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
+	"github.com/netbirdio/netbird/shared/management/relaypolicy"
 )
 
 const (
@@ -13,6 +14,8 @@ const (
 )
 
 type NetworkMap struct {
+	HomeRelayPolicy     *relaypolicy.ResolvedRelayPolicy
+	PairRelayPolicies   map[relaypolicy.PeerID]*relaypolicy.ResolvedRelayPolicy
 	Peers               []*nmdata.Peer
 	Network             *nmdata.Network
 	Routes              []*nmdata.Route

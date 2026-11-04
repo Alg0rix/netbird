@@ -65,8 +65,9 @@ type Controller struct {
 
 	perAccountServerSupportedSyncMessageVersions map[string]sharedgrpc.SyncMessageVersion
 
-	nmdataStore  *networkmapdb.NetworkMapDBStoreImpl
-	nmdataBuffer *requestbuffer.Buffer[*networkmap.NetworkMapData]
+	nmdataStore        *networkmapdb.NetworkMapDBStoreImpl
+	nmdataBuffer       *requestbuffer.Buffer[*networkmap.NetworkMapData]
+	relayPolicySerials relayPolicySerialReader
 }
 
 type bufferUpdate struct {
@@ -106,6 +107,7 @@ func NewController(ctx context.Context, store store.Store, metrics telemetry.App
 		perAccountServerSupportedSyncMessageVersions: sharedgrpc.SyncMessageVersionsFromMap(config.PerAccountHighestSupportedSyncMessageVersion),
 		nmdataStore: nmdataStore,
 	}
+	c.relayPolicySerials, _ = store.(relayPolicySerialReader)
 
 	if nmdataStore != nil {
 		interval := requestbuffer.Interval(ctx, "NB_NETWORK_MAP_DATA_BUFFER_INTERVAL", defaultNetworkMapDataBufferInterval)

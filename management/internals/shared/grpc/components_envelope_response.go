@@ -9,6 +9,7 @@ import (
 	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
 	"github.com/netbirdio/netbird/management/server/types"
 	sharedgrpc "github.com/netbirdio/netbird/shared/management/grpc"
+	"github.com/netbirdio/netbird/shared/management/networkmap"
 	nmdata "github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/proto"
 )
@@ -48,6 +49,8 @@ func ToComponentSyncResponse(
 	//
 	enableSSH := computeSSHEnabledForPeer(components, peer)
 	peerConfig := toPeerConfig(peer, components.Network, dnsName, settings, httpConfig, deviceFlowConfig, enableSSH, components.ForceRoutingPeerDNSResolution)
+
+	peerConfig.HomeRelayPolicy = networkmap.ToProtocolRelayPolicy(components.HomeRelayPolicy)
 
 	userIDClaim := auth.DefaultUserIDClaim
 	if httpConfig != nil && httpConfig.AuthUserIDClaim != "" {

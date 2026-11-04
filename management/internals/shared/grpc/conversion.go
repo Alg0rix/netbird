@@ -176,10 +176,12 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 	extendedConfig := integrationsConfig.ExtendNetBirdConfig(peer.ID, peerGroups, nbConfig, extraSettings)
 	response.NetbirdConfig = extendedConfig
 
+	response.PeerConfig.HomeRelayPolicy = networkmap.ToProtocolRelayPolicy(networkMap.HomeRelayPolicy)
 	response.NetworkMap.PeerConfig = response.PeerConfig
 
 	remotePeers := make([]*proto.RemotePeerConfig, 0, len(networkMap.Peers)+len(networkMap.OfflinePeers))
 	remotePeers = networkmap.AppendRemotePeerConfig(remotePeers, networkMap.Peers, dnsName, includeIPv6, localIsProxy)
+	networkmap.ApplyRemoteRelayPolicies(remotePeers, networkMap.Peers, networkMap.PairRelayPolicies)
 
 	if !shouldSkipSendingDeprecatedRemotePeers(peer.Meta.WtVersion) {
 		response.RemotePeers = remotePeers
@@ -190,6 +192,7 @@ func ToSyncResponse(ctx context.Context, config *nbconfig.Config, httpConfig *nb
 	response.NetworkMap.RemotePeersIsEmpty = response.RemotePeersIsEmpty
 
 	response.NetworkMap.OfflinePeers = networkmap.AppendRemotePeerConfig(nil, networkMap.OfflinePeers, dnsName, includeIPv6, localIsProxy)
+	networkmap.ApplyRemoteRelayPolicies(response.NetworkMap.OfflinePeers, networkMap.OfflinePeers, networkMap.PairRelayPolicies)
 
 	firewallRules := networkmap.ToProtocolFirewallRules(networkMap.FirewallRules, includeIPv6, useSourcePrefixes)
 	response.NetworkMap.FirewallRules = firewallRules

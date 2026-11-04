@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"fmt"
 
+	goproto "google.golang.org/protobuf/proto"
+
 	"github.com/netbirdio/netbird/shared/management/proto"
 	"github.com/netbirdio/netbird/shared/management/types"
 )
@@ -75,16 +77,21 @@ func EnvelopeToNetworkMap(ctx context.Context, env *proto.NetworkMapEnvelope, lo
 		Serial: typedNM.Network.CurrentSerial(),
 	}
 	if full != nil {
-		protoNM.PeerConfig = full.PeerConfig
+		if full.PeerConfig != nil {
+			protoNM.PeerConfig = goproto.Clone(full.PeerConfig).(*proto.PeerConfig)
+			protoNM.PeerConfig.HomeRelayPolicy = ToProtocolRelayPolicy(components.HomeRelayPolicy)
+		}
 	}
 	protoNM.Routes = ToProtocolRoutes(typedNM.Routes)
 	protoNM.DNSConfig = ToProtocolDNSConfig(typedNM.DNSConfig, nil, dnsFwdPort)
 
 	remotePeers := AppendRemotePeerConfig(nil, typedNM.Peers, dnsName, includeIPv6, localPeer.ProxyMeta.Embedded)
+	ApplyRemoteRelayPolicies(remotePeers, typedNM.Peers, typedNM.PairRelayPolicies)
 	protoNM.RemotePeers = remotePeers
 	protoNM.RemotePeersIsEmpty = len(remotePeers) == 0
 
 	protoNM.OfflinePeers = AppendRemotePeerConfig(nil, typedNM.OfflinePeers, dnsName, includeIPv6, localPeer.ProxyMeta.Embedded)
+	ApplyRemoteRelayPolicies(protoNM.OfflinePeers, typedNM.OfflinePeers, typedNM.PairRelayPolicies)
 
 	firewallRules := ToProtocolFirewallRules(typedNM.FirewallRules, includeIPv6, useSourcePrefixes)
 	protoNM.FirewallRules = firewallRules

@@ -31,8 +31,9 @@ type (
 )
 
 const (
-	RelayPolicyReady   RelayPolicyState = "ready"
-	RelayPolicyBlocked RelayPolicyState = "blocked"
+	RelayPolicyReady       RelayPolicyState = "ready"
+	RelayPolicyBlocked     RelayPolicyState = "blocked"
+	RelayPolicyUnsupported RelayPolicyState = "unsupported"
 )
 
 // RelayCatalog is an immutable operator publication shared by Management replicas.
@@ -148,6 +149,39 @@ type ResolvedRelayPolicy struct {
 	Contributors          []RelayPolicyContribution
 	PreferenceRule        RelayRuleID
 	Eliminated            []RelayID
+}
+
+// Copy returns detached effective instructions, preserving absence.
+func (p *ResolvedRelayPolicy) Copy() *ResolvedRelayPolicy {
+	if p == nil {
+		return nil
+	}
+	c := *p
+	c.Tiers = slices.Clone(p.Tiers)
+	for i := range c.Tiers {
+		c.Tiers[i] = slices.Clone(c.Tiers[i])
+		for j := range c.Tiers[i] {
+			c.Tiers[i][j].Aliases = slices.Clone(c.Tiers[i][j].Aliases)
+		}
+	}
+	c.Contributors = slices.Clone(p.Contributors)
+	for i := range c.Contributors {
+		c.Contributors[i].Eliminated = slices.Clone(c.Contributors[i].Eliminated)
+	}
+	c.Eliminated = slices.Clone(p.Eliminated)
+	return &c
+}
+
+// CopyPolicies detaches pair instructions from a shared snapshot.
+func CopyPolicies(policies map[PeerID]*ResolvedRelayPolicy) map[PeerID]*ResolvedRelayPolicy {
+	if policies == nil {
+		return nil
+	}
+	result := make(map[PeerID]*ResolvedRelayPolicy, len(policies))
+	for id, policy := range policies {
+		result[id] = policy.Copy()
+	}
+	return result
 }
 
 // Copy returns a deep copy of the group.

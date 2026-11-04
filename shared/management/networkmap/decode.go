@@ -11,6 +11,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	goproto "google.golang.org/protobuf/proto"
 
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
@@ -83,6 +84,23 @@ func DecodeEnvelope(ctx context.Context, env *proto.NetworkMapEnvelope) (*types.
 		peer := decodePeerCompact(pc, peerID)
 		c.Peers[peerID] = peer
 		peerIDByIndex[idx] = peerID
+	}
+
+	homeWire := full.HomeRelayPolicy
+	if peerHome := full.PeerConfig.GetHomeRelayPolicy(); peerHome != nil {
+		if homeWire != nil && !goproto.Equal(homeWire, peerHome) {
+			return nil, fmt.Errorf("conflicting home relay instructions")
+		}
+		homeWire = peerHome
+	}
+	homePolicy, err := FromProtocolRelayPolicy(homeWire)
+	if err != nil {
+		return nil, fmt.Errorf("decode home relay policy: %w", err)
+	}
+	c.HomeRelayPolicy = homePolicy
+	c.PairRelayPolicies, err = decodePairRelayPolicies(full.PairRelayPolicies, c.Peers)
+	if err != nil {
+		return nil, fmt.Errorf("decode pair relay policies: %w", err)
 	}
 
 	// Phase 2: groups.
@@ -325,6 +343,9 @@ func decodeAccountSettings(as *proto.AccountSettingsCompact) *nmdata.AccountSett
 
 func decodePeerCompact(pc *proto.PeerCompact, peerID string) *nmdata.Peer {
 	var caps []int32
+	if pc.SupportsRelayPolicy {
+		caps = append(caps, nmdata.PeerCapabilityRelayPolicy)
+	}
 	if pc.SupportsSourcePrefixes {
 		caps = append(caps, nmdata.PeerCapabilitySourcePrefixes)
 	}

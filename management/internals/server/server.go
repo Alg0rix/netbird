@@ -81,8 +81,10 @@ type BaseServer struct {
 	letsEncryptListenAddress    string
 	autoResolveDomains          bool
 
-	proxyAuthClose    func()
-	domainCleanupStop func()
+	proxyAuthClose         func()
+	domainCleanupStop      func()
+	relayPolicyUpdatesMu   sync.Mutex
+	relayPolicyUpdatesStop func()
 
 	// grpcExtensions holds additional gRPC services, interceptors, and shutdown
 	// hooks registered by external modules via RegisterGRPCExtension. Populated
@@ -153,6 +155,7 @@ func (s *BaseServer) AfterInit(fn func(s *BaseServer)) {
 // Start begins listening for HTTP requests on the configured address
 func (s *BaseServer) Start(ctx context.Context) error {
 	if err := s.start(ctx); err != nil {
+		s.stopRelayPolicyUpdates()
 		s.RunStopHandlers()
 		return err
 	}
@@ -270,9 +273,31 @@ func (s *BaseServer) start(ctx context.Context) (err error) {
 		log.WithContext(ctx).Infof("your management version, \"%s\", is outdated, a new management version is available. Learn more here: https://github.com/netbirdio/netbird/releases", version.NetbirdVersion())
 	})
 	s.startDomainCleanup(srvCtx)
+	s.startRelayPolicyUpdates(srvCtx)
 
 	return nil
 }
+func (s *BaseServer) startRelayPolicyUpdates(ctx context.Context) {
+	s.relayPolicyUpdatesMu.Lock()
+	defer s.relayPolicyUpdatesMu.Unlock()
+	if s.relayPolicyUpdatesStop != nil {
+		return
+	}
+	if watcher, ok := s.NetworkMapController().(interface{ StartRelayPolicyUpdates(context.Context) func() }); ok {
+		s.relayPolicyUpdatesStop = watcher.StartRelayPolicyUpdates(ctx)
+	}
+}
+
+func (s *BaseServer) stopRelayPolicyUpdates() {
+	s.relayPolicyUpdatesMu.Lock()
+	stop := s.relayPolicyUpdatesStop
+	s.relayPolicyUpdatesStop = nil
+	s.relayPolicyUpdatesMu.Unlock()
+	if stop != nil {
+		stop()
+	}
+}
+
 func (s *BaseServer) startDomainCleanup(ctx context.Context) {
 	if s.domainCleanupStop != nil {
 		return
@@ -334,6 +359,7 @@ func (s *BaseServer) Stop() error {
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	defer s.RunStopHandlers()
+	s.stopRelayPolicyUpdates()
 	if s.domainCleanupStop != nil {
 		s.domainCleanupStop()
 	}

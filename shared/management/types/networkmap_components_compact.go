@@ -2,6 +2,7 @@ package types
 
 import (
 	nmdata "github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
+	"github.com/netbirdio/netbird/shared/management/relaypolicy"
 )
 
 type GroupCompact struct {
@@ -10,7 +11,9 @@ type GroupCompact struct {
 }
 
 type NetworkMapComponentsCompact struct {
-	PeerID string
+	PeerID            string
+	HomeRelayPolicy   *relaypolicy.ResolvedRelayPolicy
+	PairRelayPolicies map[relaypolicy.PeerID]*relaypolicy.ResolvedRelayPolicy
 
 	Network          *nmdata.Network
 	AccountSettings  *nmdata.AccountSettingsInfo
@@ -117,11 +120,13 @@ func (c *NetworkMapComponents) ToCompact() *NetworkMapComponentsCompact {
 	}
 
 	return &NetworkMapComponentsCompact{
-		PeerID:           c.PeerID,
-		Network:          c.Network,
-		AccountSettings:  c.AccountSettings,
-		DNSSettings:      c.DNSSettings,
-		CustomZoneDomain: c.CustomZoneDomain,
+		PeerID:            c.PeerID,
+		HomeRelayPolicy:   c.HomeRelayPolicy.Copy(),
+		PairRelayPolicies: relaypolicy.CopyPolicies(c.PairRelayPolicies),
+		Network:           c.Network,
+		AccountSettings:   c.AccountSettings,
+		DNSSettings:       c.DNSSettings,
+		CustomZoneDomain:  c.CustomZoneDomain,
 
 		AllPeers:          allPeers,
 		PeerIndexes:       peerIndexes,
@@ -198,11 +203,13 @@ func (c *NetworkMapComponentsCompact) ToFull() *NetworkMapComponents {
 	}
 
 	return &NetworkMapComponents{
-		PeerID:           c.PeerID,
-		Network:          c.Network,
-		AccountSettings:  c.AccountSettings,
-		DNSSettings:      c.DNSSettings,
-		CustomZoneDomain: c.CustomZoneDomain,
+		PeerID:            c.PeerID,
+		HomeRelayPolicy:   c.HomeRelayPolicy.Copy(),
+		PairRelayPolicies: relaypolicy.CopyPolicies(c.PairRelayPolicies),
+		Network:           c.Network,
+		AccountSettings:   c.AccountSettings,
+		DNSSettings:       c.DNSSettings,
+		CustomZoneDomain:  c.CustomZoneDomain,
 
 		Peers:       peers,
 		RouterPeers: routerPeers,

@@ -15,10 +15,14 @@ import (
 	"github.com/netbirdio/netbird/route"
 	"github.com/netbirdio/netbird/shared/management/domain"
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
+	"github.com/netbirdio/netbird/shared/management/relaypolicy"
 )
 
 type NetworkMapComponents struct {
 	PeerID string
+
+	HomeRelayPolicy   *relaypolicy.ResolvedRelayPolicy
+	PairRelayPolicies map[relaypolicy.PeerID]*relaypolicy.ResolvedRelayPolicy
 
 	Network          *nmdata.Network
 	AccountSettings  *nmdata.AccountSettingsInfo
@@ -199,6 +203,8 @@ func (c *NetworkMapComponents) Calculate(ctx context.Context) *NetworkMap {
 	}
 
 	return &NetworkMap{
+		HomeRelayPolicy:     c.HomeRelayPolicy.Copy(),
+		PairRelayPolicies:   relaypolicy.CopyPolicies(c.PairRelayPolicies),
 		Peers:               peersToConnectIncludingRouters,
 		Network:             c.Network,
 		Routes:              append(filterAndExpandRoutes(networkResourcesRoutes, includeIPv6), routesUpdate...),

@@ -64,6 +64,10 @@ type NetworkMapData struct { //nolint:revive // established name across the code
 	peerGroupsOnce sync.Once
 	peerGroupsIdx  map[string]map[string]struct{}
 
+	relayResolverOnce sync.Once
+	relayResolver     *relaypolicy.Resolver
+	relayResolverErr  error
+
 	proxyPoliciesOnce sync.Once
 
 	admissionsOnce sync.Once
