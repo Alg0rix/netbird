@@ -70,12 +70,12 @@ func NewManager(s store.Store, p permissions.Manager, hooks Hooks) *Manager {
 	return &Manager{store: s, permissions: p, hooks: hooks}
 }
 
-func (m *Manager) authorize(ctx context.Context, accountID, userID string, operation operations.Operation) error {
-	user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthNone, userID)
+func (m *Manager) authorize(ctx context.Context, accountID sharedrelay.AccountID, userID sharedrelay.UserID, operation operations.Operation) error {
+	user, err := m.store.GetUserByUserID(ctx, store.LockingStrengthNone, string(userID))
 	if err != nil {
 		return err
 	}
-	if user == nil || user.AccountID != accountID || user.IsBlocked() {
+	if user == nil || user.AccountID != string(accountID) || user.IsBlocked() {
 		return status.NewPermissionDeniedError()
 	}
 	switch user.Role {
@@ -87,7 +87,7 @@ func (m *Manager) authorize(ctx context.Context, accountID, userID string, opera
 	default:
 		return status.NewPermissionDeniedError()
 	}
-	allowed, _, err := m.permissions.ValidateUserPermissions(ctx, accountID, userID, modules.Relays, operation)
+	allowed, _, err := m.permissions.ValidateUserPermissions(ctx, string(accountID), string(userID), modules.Relays, operation)
 	if err != nil {
 		return err
 	}
@@ -106,7 +106,7 @@ func repository(s store.Store) (store.RelayPolicyStore, error) {
 }
 
 // Get returns account configuration and the shared approved catalog after authorization.
-func (m *Manager) Get(ctx context.Context, accountID, userID string) (sharedrelay.Snapshot, error) {
+func (m *Manager) Get(ctx context.Context, accountID sharedrelay.AccountID, userID sharedrelay.UserID) (sharedrelay.Snapshot, error) {
 	if err := m.authorize(ctx, accountID, userID, operations.Read); err != nil {
 		return sharedrelay.Snapshot{}, err
 	}
@@ -114,11 +114,11 @@ func (m *Manager) Get(ctx context.Context, accountID, userID string) (sharedrela
 	if err != nil {
 		return sharedrelay.Snapshot{}, err
 	}
-	return repo.GetRelaySnapshot(ctx, sharedrelay.AccountID(accountID))
+	return repo.GetRelaySnapshot(ctx, accountID)
 }
 
 // Save validates and atomically persists a revision-fenced configuration, then audits and pushes it.
-func (m *Manager) Save(ctx context.Context, accountID, userID string, expectedRevision, catalogGeneration uint64, candidate sharedrelay.Configuration) (sharedrelay.Configuration, error) {
+func (m *Manager) Save(ctx context.Context, accountID sharedrelay.AccountID, userID sharedrelay.UserID, expectedRevision, catalogGeneration uint64, candidate sharedrelay.Configuration) (sharedrelay.Configuration, error) {
 	if err := m.authorize(ctx, accountID, userID, operations.Update); err != nil {
 		return sharedrelay.Configuration{}, err
 	}
@@ -129,10 +129,10 @@ func (m *Manager) Save(ctx context.Context, accountID, userID string, expectedRe
 		if err != nil {
 			return err
 		}
-		if err := repo.LockRelayConfiguration(ctx, sharedrelay.AccountID(accountID)); err != nil {
+		if err := repo.LockRelayConfiguration(ctx, accountID); err != nil {
 			return err
 		}
-		account, err := tx.GetAccount(ctx, accountID)
+		account, err := tx.GetAccount(ctx, string(accountID))
 		if err != nil {
 			return err
 		}
@@ -148,13 +148,13 @@ func (m *Manager) Save(ctx context.Context, accountID, userID string, expectedRe
 		if err := ValidateAccount(ctx, account); err != nil {
 			return err
 		}
-		saved, err = repo.SaveRelayConfiguration(ctx, sharedrelay.AccountID(accountID), expectedRevision, catalogGeneration, candidate)
+		saved, err = repo.SaveRelayConfiguration(ctx, accountID, expectedRevision, catalogGeneration, candidate)
 		return err
 	})
 	if err != nil {
 		return sharedrelay.Configuration{}, mapError(err)
 	}
-	m.committed(ctx, accountID, userID, accountID, activity.RelayConfigurationUpdated, map[string]any{
+	m.committed(ctx, accountID, userID, auditTargetID(accountID), activity.RelayConfigurationUpdated, map[string]any{
 		"old_revision": expectedRevision, "new_revision": saved.Revision, "catalog_generation": catalogGeneration,
 	})
 	return saved, nil
@@ -188,11 +188,11 @@ func validateNames(candidate sharedrelay.Configuration) error {
 }
 
 // Preview resolves a detached candidate without persisting it or granting connectivity.
-func (m *Manager) Preview(ctx context.Context, accountID, userID string, candidate sharedrelay.Configuration) (*Preview, error) {
+func (m *Manager) Preview(ctx context.Context, accountID sharedrelay.AccountID, userID sharedrelay.UserID, candidate sharedrelay.Configuration) (*Preview, error) {
 	if err := m.authorize(ctx, accountID, userID, operations.Read); err != nil {
 		return nil, err
 	}
-	account, err := m.store.GetAccount(ctx, accountID)
+	account, err := m.store.GetAccount(ctx, string(accountID))
 	if err != nil {
 		return nil, err
 	}
@@ -207,11 +207,11 @@ func (m *Manager) Preview(ctx context.Context, accountID, userID string, candida
 }
 
 // Effective returns one authorized pair's resolved policy, or the local home policy when b is empty.
-func (m *Manager) Effective(ctx context.Context, accountID, userID string, a, b sharedrelay.PeerID) (*sharedrelay.ResolvedRelayPolicy, error) {
+func (m *Manager) Effective(ctx context.Context, accountID sharedrelay.AccountID, userID sharedrelay.UserID, a, b sharedrelay.PeerID) (*sharedrelay.ResolvedRelayPolicy, error) {
 	if err := m.authorize(ctx, accountID, userID, operations.Read); err != nil {
 		return nil, err
 	}
-	account, err := m.store.GetAccount(ctx, accountID)
+	account, err := m.store.GetAccount(ctx, string(accountID))
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +219,7 @@ func (m *Manager) Effective(ctx context.Context, accountID, userID string, a, b 
 }
 
 // Retry persists a rate-limited reconciliation directive without modifying relay permissions.
-func (m *Manager) Retry(ctx context.Context, accountID, userID string, a, b sharedrelay.PeerID, expectedDigest sharedrelay.Digest) (*RetryResult, error) {
+func (m *Manager) Retry(ctx context.Context, accountID sharedrelay.AccountID, userID sharedrelay.UserID, a, b sharedrelay.PeerID, expectedDigest sharedrelay.Digest) (*RetryResult, error) {
 	if err := m.authorize(ctx, accountID, userID, operations.Update); err != nil {
 		return nil, err
 	}
@@ -232,10 +232,10 @@ func (m *Manager) Retry(ctx context.Context, accountID, userID string, a, b shar
 		if err != nil {
 			return err
 		}
-		if err := repo.LockRelayConfiguration(ctx, sharedrelay.AccountID(accountID)); err != nil {
+		if err := repo.LockRelayConfiguration(ctx, accountID); err != nil {
 			return err
 		}
-		account, err := tx.GetAccount(ctx, accountID)
+		account, err := tx.GetAccount(ctx, string(accountID))
 		if err != nil {
 			return err
 		}
@@ -249,7 +249,7 @@ func (m *Manager) Retry(ctx context.Context, accountID, userID string, a, b shar
 		if !supports(account, a) || (b != "" && !supports(account, b)) {
 			return status.Errorf(status.PreconditionFailed, "relay policy target has an unsupported client")
 		}
-		result.Generation, err = repo.AdvanceRelayReselection(ctx, sharedrelay.AccountID(accountID), a, b, account.RelaySnapshot().Revision)
+		result.Generation, err = repo.AdvanceRelayReselection(ctx, accountID, a, b, account.RelaySnapshot().Revision)
 		if err != nil {
 			return err
 		}
@@ -262,18 +262,20 @@ func (m *Manager) Retry(ctx context.Context, accountID, userID string, a, b shar
 	if b != "" && a > b {
 		a, b = b, a
 	}
-	m.committed(ctx, accountID, userID, string(a), activity.RelayPreferredRetryRequested, map[string]any{
+	m.committed(ctx, accountID, userID, auditTargetID(a), activity.RelayPreferredRetryRequested, map[string]any{
 		"peer_a": a, "peer_b": b, "reselection_generation": result.Generation, "effective_digest": expectedDigest,
 	})
 	return &result, nil
 }
 
-func (m *Manager) committed(ctx context.Context, accountID, userID, targetID string, event activity.Activity, meta map[string]any) {
+type auditTargetID string
+
+func (m *Manager) committed(ctx context.Context, accountID sharedrelay.AccountID, userID sharedrelay.UserID, targetID auditTargetID, event activity.Activity, meta map[string]any) {
 	if m.hooks.Audit != nil {
-		m.hooks.Audit(ctx, userID, targetID, accountID, event, meta)
+		m.hooks.Audit(ctx, string(userID), string(targetID), string(accountID), event, meta)
 	}
 	if m.hooks.Update != nil {
-		m.hooks.Update(context.WithoutCancel(ctx), accountID)
+		m.hooks.Update(context.WithoutCancel(ctx), string(accountID))
 	}
 }
 

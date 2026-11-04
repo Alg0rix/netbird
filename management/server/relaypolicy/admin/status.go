@@ -14,7 +14,7 @@ import (
 
 // Report records authenticated endpoint observations after checking current sync ownership and policy.
 // The caller obtains local and session from the authenticated sync protocol, never RPC identity fields.
-func (m *Manager) Report(ctx context.Context, accountID string, local rp.PeerID, session int64, reports []rp.PathReport) error {
+func (m *Manager) Report(ctx context.Context, accountID rp.AccountID, local rp.PeerID, session int64, reports []rp.PathReport) error {
 	if len(reports) == 0 || len(reports) > rp.MaxReports || local == "" || session <= 0 {
 		return status.Errorf(status.InvalidArgument, "invalid relay observation batch")
 	}
@@ -30,10 +30,10 @@ func (m *Manager) Report(ctx context.Context, accountID string, local rp.PeerID,
 		if err != nil {
 			return err
 		}
-		if err := repository.LockRelayConfiguration(ctx, rp.AccountID(accountID)); err != nil {
+		if err := repository.LockRelayConfiguration(ctx, accountID); err != nil {
 			return err
 		}
-		account, err := tx.GetAccount(ctx, accountID)
+		account, err := tx.GetAccount(ctx, string(accountID))
 		if err != nil {
 			return err
 		}
@@ -58,7 +58,7 @@ func (m *Manager) Report(ctx context.Context, accountID string, local rp.PeerID,
 		if !ok {
 			return status.Errorf(status.PreconditionFailed, "transaction does not support relay observations")
 		}
-		return repositoryObservations.PutRelayObservations(ctx, rp.AccountID(accountID), local, session, reports)
+		return repositoryObservations.PutRelayObservations(ctx, accountID, local, session, reports)
 	})
 }
 
@@ -107,7 +107,7 @@ func permittedRelay(policy *rp.ResolvedRelayPolicy, id rp.RelayID) bool {
 }
 
 // Status reads desired and observed home or pair status through the same account authorization as configuration.
-func (m *Manager) Status(ctx context.Context, accountID, userID string, a, b rp.PeerID) (*rp.EffectiveStatus, error) {
+func (m *Manager) Status(ctx context.Context, accountID rp.AccountID, userID rp.UserID, a, b rp.PeerID) (*rp.EffectiveStatus, error) {
 	if err := m.authorize(ctx, accountID, userID, operations.Read); err != nil {
 		return nil, err
 	}
@@ -117,10 +117,10 @@ func (m *Manager) Status(ctx context.Context, accountID, userID string, a, b rp.
 		if err != nil {
 			return err
 		}
-		if _, err := repository.GetRelaySnapshot(ctx, rp.AccountID(accountID)); err != nil {
+		if _, err := repository.GetRelaySnapshot(ctx, accountID); err != nil {
 			return err
 		}
-		account, err := tx.GetAccount(ctx, accountID)
+		account, err := tx.GetAccount(ctx, string(accountID))
 		if err != nil {
 			return err
 		}
@@ -132,7 +132,7 @@ func (m *Manager) Status(ctx context.Context, accountID, userID string, a, b rp.
 		if !ok {
 			return status.Errorf(status.PreconditionFailed, "store does not support relay observations")
 		}
-		endpoints, err := observations.GetRelayObservations(ctx, rp.AccountID(accountID), a, b)
+		endpoints, err := observations.GetRelayObservations(ctx, accountID, a, b)
 		if err != nil {
 			return err
 		}

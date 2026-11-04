@@ -53,12 +53,12 @@ func (h *handler) registerEndpoints(router *mux.Router) {
 	}
 }
 
-func scope(r *http.Request) (string, string, error) {
+func scope(r *http.Request) (rp.AccountID, rp.UserID, error) {
 	auth, err := nbcontext.GetUserAuthFromContext(r.Context())
 	if err != nil {
 		return "", "", status.Errorf(status.Unauthenticated, "user authentication is required")
 	}
-	return auth.AccountId, auth.UserId, nil
+	return rp.AccountID(auth.AccountId), rp.UserID(auth.UserId), nil
 }
 
 func writeError(w http.ResponseWriter, r *http.Request, err error) {
@@ -120,7 +120,7 @@ func (h *handler) configuration(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, err)
 		return
 	}
-	saved, err := h.manager.Save(r.Context(), accountID, userID, request.Revision, request.CatalogGeneration, fromConfiguration(request, rp.AccountID(accountID)))
+	saved, err := h.manager.Save(r.Context(), accountID, userID, request.Revision, request.CatalogGeneration, fromConfiguration(request, accountID))
 	if err != nil {
 		writeError(w, r, err)
 		return
@@ -139,7 +139,7 @@ func (h *handler) preview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, err)
 		return
 	}
-	preview, err := h.manager.Preview(r.Context(), accountID, userID, fromConfiguration(request, rp.AccountID(accountID)))
+	preview, err := h.manager.Preview(r.Context(), accountID, userID, fromConfiguration(request, accountID))
 	if err != nil {
 		writeError(w, r, err)
 		return

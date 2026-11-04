@@ -6748,7 +6748,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RelayCatalogResponse'}
         '400':
-          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+          description: Invalid configuration or referenced resource deletion.
         '401':
           $ref: '#/components/responses/requires_authentication'
         '403':
@@ -6775,7 +6775,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RelayPolicyConfiguration'}
         '400':
-          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+          description: Invalid configuration or referenced resource deletion.
         '401':
           $ref: '#/components/responses/requires_authentication'
         '403':
@@ -6806,7 +6806,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RelayPolicyConfiguration'}
         '400':
-          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+          description: Invalid configuration or referenced resource deletion.
         '401':
           $ref: '#/components/responses/requires_authentication'
         '403':
@@ -6815,6 +6815,8 @@ paths:
           description: Resource not found in this account.
         '409':
           description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '412':
+          description: Assigned endpoints cannot apply this policy or the retry target lacks compatible enforcement.
         '429':
           description: Retry request rate limit exceeded.
         '500':
@@ -6838,7 +6840,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RelayPolicyPreview'}
         '400':
-          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+          description: Invalid configuration or referenced resource deletion.
         '401':
           $ref: '#/components/responses/requires_authentication'
         '403':
@@ -6876,7 +6878,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RelayPolicyStatus'}
         '400':
-          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+          description: Invalid configuration or referenced resource deletion.
         '401':
           $ref: '#/components/responses/requires_authentication'
         '403':
@@ -6914,7 +6916,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RelayEffectiveResponse'}
         '400':
-          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+          description: Invalid configuration or referenced resource deletion.
         '401':
           $ref: '#/components/responses/requires_authentication'
         '403':
@@ -6946,7 +6948,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RelayRetryResponse'}
         '400':
-          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+          description: Invalid configuration or referenced resource deletion.
         '401':
           $ref: '#/components/responses/requires_authentication'
         '403':
@@ -6955,6 +6957,8 @@ paths:
           description: Resource not found in this account.
         '409':
           description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '412':
+          description: Assigned endpoints cannot apply this policy or the retry target lacks compatible enforcement.
         '429':
           description: Retry request rate limit exceeded.
         '500':
@@ -6994,7 +6998,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RelayGroupList'}
         '400':
-          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+          description: Invalid configuration or referenced resource deletion.
         '401':
           $ref: '#/components/responses/requires_authentication'
         '403':
@@ -7025,7 +7029,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RelayPolicyConfiguration'}
         '400':
-          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+          description: Invalid configuration or referenced resource deletion.
         '401':
           $ref: '#/components/responses/requires_authentication'
         '403':
@@ -7034,6 +7038,8 @@ paths:
           description: Resource not found in this account.
         '409':
           description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '412':
+          description: Assigned endpoints cannot apply this policy or the retry target lacks compatible enforcement.
         '429':
           description: Retry request rate limit exceeded.
         '500':
@@ -7058,7 +7064,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RelayGroup'}
         '400':
-          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+          description: Invalid configuration or referenced resource deletion.
         '401':
           $ref: '#/components/responses/requires_authentication'
         '403':
@@ -7095,7 +7101,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RelayPolicyConfiguration'}
         '400':
-          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+          description: Invalid configuration or referenced resource deletion.
         '401':
           $ref: '#/components/responses/requires_authentication'
         '403':
@@ -7104,6 +7110,8 @@ paths:
           description: Resource not found in this account.
         '409':
           description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '412':
+          description: Assigned endpoints cannot apply this policy or the retry target lacks compatible enforcement.
         '429':
           description: Retry request rate limit exceeded.
         '500':
@@ -7137,7 +7145,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RelayPolicyConfiguration'}
         '400':
-          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+          description: Invalid configuration or referenced resource deletion.
         '401':
           $ref: '#/components/responses/requires_authentication'
         '403':
@@ -7146,6 +7154,8 @@ paths:
           description: Resource not found in this account.
         '409':
           description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '412':
+          description: Assigned endpoints cannot apply this policy or the retry target lacks compatible enforcement.
         '429':
           description: Retry request rate limit exceeded.
         '500':
@@ -7185,7 +7195,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RelayHomeProfileList'}
         '400':
-          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+          description: Invalid configuration or referenced resource deletion.
         '401':
           $ref: '#/components/responses/requires_authentication'
         '403':
@@ -7216,7 +7226,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RelayPolicyConfiguration'}
         '400':
-          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+          description: Invalid configuration or referenced resource deletion.
         '401':
           $ref: '#/components/responses/requires_authentication'
         '403':
@@ -7225,6 +7235,8 @@ paths:
           description: Resource not found in this account.
         '409':
           description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '412':
+          description: Assigned endpoints cannot apply this policy or the retry target lacks compatible enforcement.
         '429':
           description: Retry request rate limit exceeded.
         '500':
@@ -7249,7 +7261,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RelayHomeProfile'}
         '400':
-          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+          description: Invalid configuration or referenced resource deletion.
         '401':
           $ref: '#/components/responses/requires_authentication'
         '403':
@@ -7286,7 +7298,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RelayPolicyConfiguration'}
         '400':
-          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+          description: Invalid configuration or referenced resource deletion.
         '401':
           $ref: '#/components/responses/requires_authentication'
         '403':
@@ -7295,6 +7307,8 @@ paths:
           description: Resource not found in this account.
         '409':
           description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '412':
+          description: Assigned endpoints cannot apply this policy or the retry target lacks compatible enforcement.
         '429':
           description: Retry request rate limit exceeded.
         '500':
@@ -7328,7 +7342,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RelayPolicyConfiguration'}
         '400':
-          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+          description: Invalid configuration or referenced resource deletion.
         '401':
           $ref: '#/components/responses/requires_authentication'
         '403':
@@ -7337,6 +7351,8 @@ paths:
           description: Resource not found in this account.
         '409':
           description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '412':
+          description: Assigned endpoints cannot apply this policy or the retry target lacks compatible enforcement.
         '429':
           description: Retry request rate limit exceeded.
         '500':
@@ -7376,7 +7392,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RelayPairPolicyList'}
         '400':
-          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+          description: Invalid configuration or referenced resource deletion.
         '401':
           $ref: '#/components/responses/requires_authentication'
         '403':
@@ -7407,7 +7423,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RelayPolicyConfiguration'}
         '400':
-          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+          description: Invalid configuration or referenced resource deletion.
         '401':
           $ref: '#/components/responses/requires_authentication'
         '403':
@@ -7416,6 +7432,8 @@ paths:
           description: Resource not found in this account.
         '409':
           description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '412':
+          description: Assigned endpoints cannot apply this policy or the retry target lacks compatible enforcement.
         '429':
           description: Retry request rate limit exceeded.
         '500':
@@ -7440,7 +7458,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RelayPairPolicy'}
         '400':
-          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+          description: Invalid configuration or referenced resource deletion.
         '401':
           $ref: '#/components/responses/requires_authentication'
         '403':
@@ -7477,7 +7495,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RelayPolicyConfiguration'}
         '400':
-          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+          description: Invalid configuration or referenced resource deletion.
         '401':
           $ref: '#/components/responses/requires_authentication'
         '403':
@@ -7486,6 +7504,8 @@ paths:
           description: Resource not found in this account.
         '409':
           description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '412':
+          description: Assigned endpoints cannot apply this policy or the retry target lacks compatible enforcement.
         '429':
           description: Retry request rate limit exceeded.
         '500':
@@ -7519,7 +7539,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RelayPolicyConfiguration'}
         '400':
-          description: Invalid configuration, unsupported endpoints, blocked activation, or referenced resource deletion.
+          description: Invalid configuration or referenced resource deletion.
         '401':
           $ref: '#/components/responses/requires_authentication'
         '403':
@@ -7528,6 +7548,8 @@ paths:
           description: Resource not found in this account.
         '409':
           description: Stale configuration revision, catalog generation, or effective digest. Reload and preview before retrying.
+        '412':
+          description: Assigned endpoints cannot apply this policy or the retry target lacks compatible enforcement.
         '429':
           description: Retry request rate limit exceeded.
         '500':

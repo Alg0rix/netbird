@@ -8,6 +8,8 @@ const Capability int32 = 4
 type (
 	// AccountID identifies an account at the relay-policy boundary.
 	AccountID string
+	// UserID identifies the authenticated actor administering relay policies.
+	UserID string
 	// PeerID identifies a peer at the relay-policy boundary.
 	PeerID string
 	// PeerGroupID identifies a peer selector group, distinct from a relay group.

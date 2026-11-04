@@ -25,7 +25,7 @@ import (
 	rp "github.com/netbirdio/netbird/shared/management/relaypolicy"
 )
 
-func relayHTTPFixture(t *testing.T) (*mux.Router, *admin.Manager) {
+func relayHTTPFixture(t *testing.T, customize ...func(*types.Account)) (*mux.Router, *admin.Manager) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("SQLite store is not supported on Windows")
@@ -39,7 +39,7 @@ func relayHTTPFixture(t *testing.T) (*mux.Router, *admin.Manager) {
 		account.Users[id] = &types.User{Id: id, AccountID: account.Id, Role: role}
 	}
 	for id, ip := range map[string]string{"x": "100.64.0.1", "y": "100.64.0.2"} {
-		account.Peers[id] = &nbpeer.Peer{ID: id, AccountID: account.Id, Key: id, IP: netip.MustParseAddr(ip), Status: &nbpeer.PeerStatus{}, Meta: nbpeer.PeerSystemMeta{Capabilities: []int32{rp.Capability}}}
+		account.Peers[id] = &nbpeer.Peer{ID: id, DNSLabel: id, AccountID: account.Id, Key: id, IP: netip.MustParseAddr(ip), Status: &nbpeer.PeerStatus{}, Meta: nbpeer.PeerSystemMeta{Capabilities: []int32{rp.Capability}}}
 	}
 	require.NoError(t, account.AddAllGroup(false))
 	for _, policy := range account.Policies {
@@ -47,6 +47,9 @@ func relayHTTPFixture(t *testing.T) (*mux.Router, *admin.Manager) {
 		for _, rule := range policy.Rules {
 			rule.PolicyID = policy.ID
 		}
+	}
+	for _, apply := range customize {
+		apply(account)
 	}
 	require.NoError(t, s.SaveAccount(ctx, account))
 	repository, ok := s.(store.RelayPolicyStore)
@@ -58,6 +61,25 @@ func relayHTTPFixture(t *testing.T) (*mux.Router, *admin.Manager) {
 	router := mux.NewRouter()
 	h.registerEndpoints(router)
 	return router, manager
+}
+
+func TestRelayHTTPUnsupportedActivationIsPreconditionFailed(t *testing.T) {
+	router, _ := relayHTTPFixture(t, func(account *types.Account) {
+		account.Peers["y"].Meta.Capabilities = nil
+	})
+	request := api.RelayPolicyConfiguration{CatalogGeneration: 1, PairPolicies: []api.RelayPairPolicy{{
+		Id: "pair", Name: "Pair", Enabled: true,
+		Source:      api.RelayPeerSelector{PeerIds: []string{"x"}},
+		Destination: api.RelayPeerSelector{PeerIds: []string{"y"}},
+		Constraints: api.RelayConstraints{ForceRelay: true},
+	}}}
+	response := relayHTTPRequest(t, router, "owner", http.MethodPut, "/relay-policies/configuration", request)
+	assert.Equal(t, http.StatusPreconditionFailed, response.Code, "unsupported endpoints must reject activation with the documented precondition response: %s", response.Body.String())
+	response = relayHTTPRequest(t, router, "owner", http.MethodGet, "/relay-policies/configuration", nil)
+	require.Equal(t, http.StatusOK, response.Code, "rejected activation leaves configuration readable")
+	var saved api.RelayPolicyConfiguration
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &saved))
+	assert.Empty(t, saved.PairPolicies, "unsupported activation must not persist a partial policy")
 }
 
 func relayHTTPRequest(t *testing.T, router http.Handler, user, method, path string, body any) *httptest.ResponseRecorder {

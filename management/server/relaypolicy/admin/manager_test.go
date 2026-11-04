@@ -37,7 +37,7 @@ func newManagerFixture(t *testing.T) (*Manager, store.Store, *int) {
 	serviceUser.AccountID, serviceUser.Role, serviceUser.IsServiceUser = account.Id, types.UserRoleUser, true
 	account.Users[serviceUser.Id] = serviceUser
 	for i, id := range []string{"x", "y", "z"} {
-		account.Peers[id] = &nbpeer.Peer{ID: id, AccountID: account.Id, Key: "key-" + id, IP: netip.AddrFrom4([4]byte{100, 64, 0, byte(i + 1)}), Status: &nbpeer.PeerStatus{}, Meta: nbpeer.PeerSystemMeta{Capabilities: []int32{sharedrelay.Capability}}}
+		account.Peers[id] = &nbpeer.Peer{ID: id, DNSLabel: id, AccountID: account.Id, Key: "key-" + id, IP: netip.AddrFrom4([4]byte{100, 64, 0, byte(i + 1)}), Status: &nbpeer.PeerStatus{}, Meta: nbpeer.PeerSystemMeta{Capabilities: []int32{sharedrelay.Capability}}}
 	}
 	require.NoError(t, account.AddAllGroup(false))
 	for _, policy := range account.Policies {
@@ -69,11 +69,11 @@ func TestManagerRoleAndAccountBoundaries(t *testing.T) {
 	m, _, _ := newManagerFixture(t)
 	ctx := context.Background()
 	for _, user := range []string{"owner", "admin", "network_admin", "auditor"} {
-		_, err := m.Get(ctx, "account", user)
+		_, err := m.Get(ctx, "account", sharedrelay.UserID(user))
 		assert.NoError(t, err)
 	}
 	for _, user := range []string{"user", "service-user"} {
-		_, err := m.Get(ctx, "account", user)
+		_, err := m.Get(ctx, "account", sharedrelay.UserID(user))
 		assert.Error(t, err, "ordinary service users must not inherit administrative read access")
 	}
 	_, err := m.Get(ctx, "foreign", "owner")
@@ -81,7 +81,7 @@ func TestManagerRoleAndAccountBoundaries(t *testing.T) {
 	_, err = m.Save(ctx, "account", "auditor", 0, 1, pairConfiguration())
 	assert.Error(t, err, "auditors cannot mutate relay policy")
 	for _, user := range []string{"owner", "admin", "network_admin"} {
-		assert.NoError(t, m.authorize(ctx, "account", user, "update"))
+		assert.NoError(t, m.authorize(ctx, "account", sharedrelay.UserID(user), "update"))
 	}
 }
 

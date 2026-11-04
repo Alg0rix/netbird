@@ -35,18 +35,19 @@ func (s *Server) ReportRelayPolicyStatus(ctx context.Context, req *mgmtproto.Enc
 	if err != nil || local == nil {
 		return nil, status.Error(codes.PermissionDenied, "relay report peer is not registered")
 	}
-	reports, err := decodeRelayPathReports(ctx, repository, local.AccountID, report.Reports)
+	accountID := rp.AccountID(local.AccountID)
+	reports, err := decodeRelayPathReports(ctx, repository, accountID, report.Reports)
 	if err != nil {
 		return nil, err
 	}
 	manager := admin.NewManager(repository, nil, admin.Hooks{})
-	if err := manager.Report(ctx, local.AccountID, rp.PeerID(local.ID), report.Session, reports); err != nil {
+	if err := manager.Report(ctx, accountID, rp.PeerID(local.ID), report.Session, reports); err != nil {
 		return nil, mapError(ctx, err)
 	}
 	return &mgmtproto.Empty{}, nil
 }
 
-func decodeRelayPathReports(ctx context.Context, repository store.Store, accountID string, wire []*mgmtproto.RelayPathReport) ([]rp.PathReport, error) {
+func decodeRelayPathReports(ctx context.Context, repository store.Store, accountID rp.AccountID, wire []*mgmtproto.RelayPathReport) ([]rp.PathReport, error) {
 	reports := make([]rp.PathReport, 0, len(wire))
 	seen := make(map[rp.PeerID]struct{}, len(wire))
 	for _, report := range wire {
@@ -68,7 +69,7 @@ func decodeRelayPathReports(ctx context.Context, repository store.Store, account
 				return nil, status.Error(codes.InvalidArgument, "invalid remote peer key")
 			}
 			remote, err := repository.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, key.String())
-			if err != nil || remote == nil || remote.AccountID != accountID {
+			if err != nil || remote == nil || remote.AccountID != string(accountID) {
 				return nil, status.Error(codes.PermissionDenied, "remote peer is unavailable")
 			}
 			remoteID = rp.PeerID(remote.ID)

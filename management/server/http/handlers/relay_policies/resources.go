@@ -54,7 +54,7 @@ func (h *handler) resource(w http.ResponseWriter, r *http.Request, kind resource
 			err = deleteResource(&candidate, kind, id)
 		}
 	} else {
-		revision, generation, err = mutateResource(w, r, &candidate, kind, id, rp.AccountID(accountID))
+		revision, generation, err = mutateResource(w, r, &candidate, kind, id, accountID)
 	}
 	if err != nil {
 		writeError(w, r, err)
@@ -240,12 +240,12 @@ func window[T any](values []T, p page) []T {
 	return values[start:min(start+p.limit, len(values))]
 }
 
-func (h *handler) peerSelectorFilter(r *http.Request, accountID string) (func(rp.RelaySelector) bool, error) {
+func (h *handler) peerSelectorFilter(r *http.Request, accountID rp.AccountID) (func(rp.RelaySelector) bool, error) {
 	peerID := rp.PeerID(r.URL.Query().Get("peer_id"))
 	if peerID == "" {
 		return func(rp.RelaySelector) bool { return true }, nil
 	}
-	account, err := h.store.GetAccount(r.Context(), accountID)
+	account, err := h.store.GetAccount(r.Context(), string(accountID))
 	if err != nil {
 		return nil, err
 	}
@@ -271,7 +271,7 @@ func (h *handler) peerSelectorFilter(r *http.Request, accountID string) (func(rp
 	}, nil
 }
 
-func (h *handler) listResources(w http.ResponseWriter, r *http.Request, kind resourceKind, snapshot rp.Snapshot, accountID string) {
+func (h *handler) listResources(w http.ResponseWriter, r *http.Request, kind resourceKind, snapshot rp.Snapshot, accountID rp.AccountID) {
 	p, err := pagination(r)
 	if err != nil {
 		writeError(w, r, err)
