@@ -45,3 +45,10 @@ func (c *Combined) Bootstrap(ctx context.Context) (string, error) {
 func (c *Combined) API() *rest.Client {
 	return c.api
 }
+
+// UsePAT configures authenticated API access to an existing account, including a
+// second management replica backed by the same SQL store.
+func (c *Combined) UsePAT(pat string) {
+	c.PAT = pat
+	c.api = rest.New(c.BaseURL, pat)
+}

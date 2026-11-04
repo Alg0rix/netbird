@@ -15,6 +15,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/types"
+	rp "github.com/netbirdio/netbird/shared/management/relaypolicy"
 	"github.com/netbirdio/netbird/util"
 	"github.com/netbirdio/netbird/util/crypt"
 
@@ -185,11 +186,22 @@ type HostConfig struct {
 	Password string `yaml:"password,omitempty"`
 }
 
-// RelaysConfig contains external relay server settings for clients
+// RelayCatalogEntryConfig describes an operator-approved concrete relay instance.
+type RelayCatalogEntryConfig struct {
+	ID               rp.RelayID         `yaml:"id"`
+	Endpoint         rp.RelayEndpoint   `yaml:"endpoint"`
+	InstanceEndpoint rp.RelayEndpoint   `yaml:"instanceEndpoint"`
+	Aliases          []rp.RelayEndpoint `yaml:"aliases"`
+	Active           bool               `yaml:"active"`
+	Legacy           bool               `yaml:"legacy"`
+}
+
+// RelaysConfig contains external relay server settings for clients.
 type RelaysConfig struct {
-	Addresses      []string `yaml:"addresses"`
-	CredentialsTTL string   `yaml:"credentialsTTL"`
-	Secret         string   `yaml:"secret"`
+	Catalog        []RelayCatalogEntryConfig `yaml:"catalog"`
+	Addresses      []string                  `yaml:"addresses"`
+	CredentialsTTL string                    `yaml:"credentialsTTL"`
+	Secret         string                    `yaml:"secret"`
 }
 
 // StoreConfig contains database settings
@@ -599,7 +611,16 @@ func buildRelayConfig(relays RelaysConfig) (*nbconfig.Relay, error) {
 			return nil, fmt.Errorf("invalid relay credentials TTL %q: %w", relays.CredentialsTTL, err)
 		}
 	}
+	var entries []rp.RelayCatalogEntry
+	for _, entry := range relays.Catalog {
+		entries = append(entries, rp.RelayCatalogEntry{ID: entry.ID, Endpoint: entry.Endpoint, InstanceEndpoint: entry.InstanceEndpoint, Aliases: entry.Aliases, Active: entry.Active, Legacy: entry.Legacy})
+	}
+	catalog, err := rp.ValidateCatalog(rp.RelayCatalog{Entries: entries})
+	if err != nil {
+		return nil, fmt.Errorf("relay catalog: %w", err)
+	}
 	return &nbconfig.Relay{
+		Catalog:        catalog.Entries,
 		Addresses:      relays.Addresses,
 		CredentialsTTL: util.Duration{Duration: ttl},
 		Secret:         relays.Secret,
@@ -681,7 +702,7 @@ func (c *CombinedConfig) ToManagementConfig() (*nbconfig.Config, error) {
 
 	// Build relay config
 	var relayConfig *nbconfig.Relay
-	if len(mgmt.Relays.Addresses) > 0 || mgmt.Relays.Secret != "" {
+	if len(mgmt.Relays.Addresses) > 0 || len(mgmt.Relays.Catalog) > 0 || mgmt.Relays.Secret != "" {
 		relay, err := buildRelayConfig(mgmt.Relays)
 		if err != nil {
 			return nil, err

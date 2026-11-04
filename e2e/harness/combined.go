@@ -4,6 +4,7 @@ package harness
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -20,6 +21,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/netbirdio/netbird/shared/management/client/rest"
+	rp "github.com/netbirdio/netbird/shared/management/relaypolicy"
 )
 
 const (
@@ -50,8 +52,11 @@ const (
 // STUN + embedded IdP) plus the connection details tests need. It owns the
 // shared docker network that the proxy and client containers join.
 type Combined struct {
-	container testcontainers.Container
-	network   *testcontainers.DockerNetwork
+	container   testcontainers.Container
+	network     *testcontainers.DockerNetwork
+	ownsNetwork bool
+	exposedURL  string
+	postgres    *Postgres
 	// BaseURL is the host-reachable management API root, e.g. http://127.0.0.1:51234.
 	BaseURL string
 	// PAT is the admin Personal Access Token minted via Bootstrap.
@@ -65,6 +70,12 @@ type Combined struct {
 type combinedOptions struct {
 	geolocation bool
 	env         map[string]string
+	catalog     []rp.RelayCatalogEntry
+	alias       string
+	shared      *Combined
+	postgres    *Postgres
+	signalURI   string
+	syncVersion *int
 }
 
 // CombinedOption adjusts how StartCombined boots the server. The defaults suit a
@@ -107,6 +118,9 @@ func combinedEnv(o combinedOptions) map[string]string {
 		// ingest doesn't use geolocation.
 		env["NB_DISABLE_GEOLOCATION"] = "true"
 	}
+	if o.postgres != nil {
+		env["NB_STORE_ENGINE_POSTGRES_DSN"] = o.postgres.internalDSN
+	}
 	for k, v := range o.env {
 		env[k] = v
 	}
@@ -117,11 +131,14 @@ func combinedEnv(o combinedOptions) map[string]string {
 // boots it with setup-PAT enabled on a fresh shared network, returning once the
 // API is serving. The caller still owns minting the admin PAT via Bootstrap.
 func StartCombined(ctx context.Context, opts ...CombinedOption) (*Combined, error) {
-	var o combinedOptions
+	o := combinedOptions{alias: combinedAlias}
 	for _, opt := range opts {
 		opt(&o)
 	}
 
+	if _, err := rp.CanonicalEndpoint(rp.RelayEndpoint("rel://" + o.alias + ":8080")); err != nil || strings.ContainsAny(o.alias, "/:") {
+		return nil, fmt.Errorf("invalid combined network alias")
+	}
 	root, err := repoRoot(ctx)
 	if err != nil {
 		return nil, err
@@ -132,27 +149,53 @@ func StartCombined(ctx context.Context, opts ...CombinedOption) (*Combined, erro
 		return nil, err
 	}
 
-	net, err := network.New(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("create shared network: %w", err)
+	var net *testcontainers.DockerNetwork
+	ownsNetwork := o.shared == nil && o.postgres == nil
+	switch {
+	case o.shared != nil:
+		net = o.shared.network
+	case o.postgres != nil:
+		net = o.postgres.network
+	default:
+		net, err = network.New(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("create shared network: %w", err)
+		}
 	}
+	cleanupNetwork := func() {
+		if ownsNetwork {
+			_ = net.Remove(context.WithoutCancel(ctx))
+		}
+	}
+	exposedURL := "http://" + o.alias + ":8080"
 
 	// Work dir under /tmp so Docker Desktop file sharing (which excludes
 	// macOS's /var/folders TMPDIR) can bind-mount it.
 	workDir, err := os.MkdirTemp("/tmp", "nb-e2e-combined-*")
 	if err != nil {
-		_ = net.Remove(ctx)
+		cleanupNetwork()
 		return nil, fmt.Errorf("create work dir: %w", err)
 	}
 
-	cfg := fmt.Sprintf(combinedConfigYAML, combinedExposedURL, !o.geolocation, containerIssuer)
+	started := false
+	defer func() {
+		if !started {
+			_ = os.RemoveAll(workDir)
+		}
+	}()
+	cfg, err := renderCombinedConfig(o, exposedURL)
+	if err != nil {
+		cleanupNetwork()
+		_ = os.RemoveAll(workDir)
+		return nil, err
+	}
 	if err := os.WriteFile(filepath.Join(workDir, "config.yaml"), []byte(cfg), 0o644); err != nil { //nolint:gosec // non-secret config, bind-mounted and read by the container
-		_ = net.Remove(ctx)
+		cleanupNetwork()
 		return nil, fmt.Errorf("write combined config: %w", err)
 	}
 	dataDir := filepath.Join(workDir, "data")
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
-		_ = net.Remove(ctx)
+		cleanupNetwork()
 		return nil, fmt.Errorf("create datadir: %w", err)
 	}
 	// The config's agentNetwork.pricingDefaultsFile is a bare filename, so the
@@ -160,7 +203,7 @@ func StartCombined(ctx context.Context, opts ...CombinedOption) (*Combined, erro
 	// configured path, so a failure to load fails the server's startup — which
 	// surfaces here as the /api/instance readiness wait timing out.
 	if err := os.WriteFile(filepath.Join(dataDir, PricingDefaultsFileName), []byte(pricingDefaultsYAML), 0o644); err != nil { //nolint:gosec // non-secret config, bind-mounted and read by the container
-		_ = net.Remove(ctx)
+		cleanupNetwork()
 		return nil, fmt.Errorf("write pricing defaults: %w", err)
 	}
 
@@ -168,7 +211,7 @@ func StartCombined(ctx context.Context, opts ...CombinedOption) (*Combined, erro
 		Image:          combinedImage,
 		ExposedPorts:   []string{combinedHTTPPort},
 		Networks:       []string{net.Name},
-		NetworkAliases: map[string][]string{net.Name: {combinedAlias}},
+		NetworkAliases: map[string][]string{net.Name: {o.alias}},
 		Env:            combinedEnv(o),
 		Cmd:            []string{"--config", "/nb/config.yaml"},
 		HostConfigModifier: func(hc *container.HostConfig) {
@@ -185,28 +228,34 @@ func StartCombined(ctx context.Context, opts ...CombinedOption) (*Combined, erro
 		Started:          true,
 	})
 	if err != nil {
-		_ = net.Remove(ctx)
+		if c != nil {
+			err = errors.Join(err, c.Terminate(context.WithoutCancel(ctx)))
+		}
+		cleanupNetwork()
 		return nil, fmt.Errorf("start combined container: %w", err)
 	}
 
 	host, err := c.Host(ctx)
 	if err != nil {
 		_ = c.Terminate(ctx)
-		_ = net.Remove(ctx)
+		cleanupNetwork()
 		return nil, fmt.Errorf("container host: %w", err)
 	}
 	mapped, err := c.MappedPort(ctx, nat.Port(combinedHTTPPort))
 	if err != nil {
 		_ = c.Terminate(ctx)
-		_ = net.Remove(ctx)
+		cleanupNetwork()
 		return nil, fmt.Errorf("mapped port: %w", err)
 	}
 
 	return &Combined{
-		container: c,
-		network:   net,
-		BaseURL:   fmt.Sprintf("http://%s:%s", host, mapped.Port()),
-		workDir:   workDir,
+		container:   c,
+		network:     net,
+		ownsNetwork: ownsNetwork,
+		exposedURL:  exposedURL,
+		postgres:    o.postgres,
+		BaseURL:     fmt.Sprintf("http://%s:%s", host, mapped.Port()),
+		workDir:     workDir,
 	}, nil
 }
 
@@ -352,7 +401,7 @@ func (c *Combined) Terminate(ctx context.Context) error {
 	if c.container != nil {
 		err = c.container.Terminate(ctx)
 	}
-	if c.network != nil {
+	if c.network != nil && c.ownsNetwork {
 		_ = c.network.Remove(ctx)
 	}
 	if c.workDir != "" {

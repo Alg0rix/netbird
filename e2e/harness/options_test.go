@@ -8,10 +8,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 // The options exist so a suite can ask for a deployment this harness would not
@@ -158,4 +160,56 @@ func TestModuleDirHonoursContext(t *testing.T) {
 
 	_, err := moduleDir(ctx, modulePath)
 	assert.ErrorIs(t, err, context.Canceled, "a cancelled context must stop the lookup")
+}
+
+func TestControlledRelayCatalogConfig(t *testing.T) {
+	entries := ControlledRelayCatalog()
+	require.Len(t, entries, 3)
+	var options combinedOptions
+	WithRelayCatalog(entries)(&options)
+	entries[0].Endpoint = "rel://mutated:33080"
+	config, err := renderCombinedConfig(options, combinedExposedURL)
+	require.NoError(t, err)
+	assert.Contains(t, config, "instanceEndpoint: rel://relay-a:33080", "combined YAML must carry the concrete instance mapping")
+	assert.NotContains(t, config, "mutated", "caller mutation must not change captured catalog config")
+	assert.Contains(t, config, "relay-c", "unrelated relay C must be available to detect policy escape")
+}
+
+func TestClientModeOptions(t *testing.T) {
+	for _, mode := range []ClientMode{ClientModeKernel, ClientModeUserspace, ClientModeNetstack} {
+		t.Run(string(mode), func(t *testing.T) {
+			var options clientOptions
+			WithClientMode(mode)(&options)
+			assert.Equal(t, mode, options.mode, "selected mode reaches request assembly")
+			assert.Equal(t, strconv.FormatBool(mode == ClientModeNetstack), options.env["NB_USE_NETSTACK_MODE"], "netstack capability must match the mode")
+			assert.Equal(t, strconv.FormatBool(mode != ClientModeKernel), options.env["NB_WG_KERNEL_DISABLED"], "kernel selection must match the mode")
+		})
+	}
+}
+
+func TestSharedPostgresConfig(t *testing.T) {
+	database := &Postgres{internalDSN: "postgres://fixture.invalid/netbird?sslmode=disable"}
+	var options combinedOptions
+	WithPostgres(database)(&options)
+	config, err := renderCombinedConfig(options, combinedExposedURL)
+	require.NoError(t, err)
+	var document map[string]any
+	require.NoError(t, yaml.Unmarshal([]byte(config), &document))
+	server := document["server"].(map[string]any)
+	assert.Equal(t, "postgres", server["store"].(map[string]any)["engine"], "management replicas must share SQL persistence")
+	assert.Equal(t, "postgres", server["authStore"].(map[string]any)["engine"], "management replicas must share IdP identities and signing keys")
+	assert.Equal(t, database.internalDSN, combinedEnv(options)["NB_STORE_ENGINE_POSTGRES_DSN"], "main store DSN reaches the real SQL opener through its supported environment setting")
+	assert.NotEmpty(t, server["store"].(map[string]any)["encryptionKey"], "management replicas require the same stable encryption key")
+}
+
+func TestCombinedNetworkMapNegotiationConfig(t *testing.T) {
+	for _, version := range []int{0, 1} {
+		t.Run(strconv.Itoa(version), func(t *testing.T) {
+			var options combinedOptions
+			WithSyncMessageVersion(version)(&options)
+			config, err := renderCombinedConfig(options, combinedExposedURL)
+			require.NoError(t, err)
+			assert.Contains(t, config, fmt.Sprintf("supportedSyncMessageVersions: %d", version), "network map version ceiling must survive rendering, including explicit zero")
+		})
+	}
 }

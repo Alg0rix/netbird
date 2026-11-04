@@ -1,0 +1,16 @@
+# Compile the current relay so acceptance scenarios exercise this branch's registration lifecycle.
+FROM golang:1.26.10-bookworm AS builder
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY . .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -o /out/netbird-relay ./relay && \
+    CGO_ENABLED=0 GOOS=linux go build -o /out/netbird-signal ./signal
+
+FROM alpine:3.24
+RUN apk add --no-cache ca-certificates
+COPY --from=builder /out/netbird-relay /usr/local/bin/netbird-relay
+COPY --from=builder /out/netbird-signal /usr/local/bin/netbird-signal
+ENTRYPOINT ["/usr/local/bin/netbird-relay"]

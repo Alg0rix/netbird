@@ -34,11 +34,15 @@ type Client struct {
 	// name is the container hostname the agent reports to management at
 	// registration — the name the peer appears under in the peers API.
 	name string
+	mode ClientMode
 }
 
 // clientOptions is what the ClientOption values assemble.
 type clientOptions struct {
-	name string
+	name  string
+	image string
+	env   map[string]string
+	mode  ClientMode
 }
 
 // ClientOption adjusts how StartClient runs the agent.
@@ -60,12 +64,19 @@ func WithClientName(name string) ClientOption {
 // daemon up automatically; callers wait for connectivity with WaitConnected /
 // WaitProxyPeer.
 func StartClient(ctx context.Context, c *Combined, setupKey string, opts ...ClientOption) (*Client, error) {
-	o := clientOptions{name: clientAlias}
+	o := clientOptions{name: clientAlias, mode: ClientModeKernel}
 	for _, opt := range opts {
 		opt(&o)
 	}
 
-	clientImage, err := ClientImage(ctx)
+	if o.mode != ClientModeKernel && o.mode != ClientModeUserspace && o.mode != ClientModeNetstack {
+		return nil, fmt.Errorf("invalid client mode %q", o.mode)
+	}
+	clientImage := o.image
+	var err error
+	if clientImage == "" {
+		clientImage, err = ClientImage(ctx)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +90,7 @@ func StartClient(ctx context.Context, c *Combined, setupKey string, opts ...Clie
 		Networks:       []string{c.network.Name},
 		NetworkAliases: map[string][]string{c.network.Name: {o.name}},
 		Env: map[string]string{
-			"NB_MANAGEMENT_URL": combinedExposedURL,
+			"NB_MANAGEMENT_URL": c.exposedURL,
 			"NB_SETUP_KEY":      setupKey,
 			"NB_LOG_LEVEL":      "info",
 			// Match the proxy: the combined relay is WebSocket-only, so the
@@ -91,14 +102,20 @@ func StartClient(ctx context.Context, c *Combined, setupKey string, opts ...Clie
 		},
 	}
 
+	for key, value := range o.env {
+		req.Env[key] = value
+	}
 	ctr, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
 		Started:          true,
 	})
 	if err != nil {
+		if ctr != nil {
+			err = errors.Join(err, ctr.Terminate(context.WithoutCancel(ctx)))
+		}
 		return nil, fmt.Errorf("start client container: %w", err)
 	}
-	return &Client{container: ctr, name: o.name}, nil
+	return &Client{container: ctr, name: o.name, mode: o.mode}, nil
 }
 
 // ClientImage returns the client image StartClient runs, building it from this
@@ -480,3 +497,77 @@ func containerLogs(ctx context.Context, c testcontainers.Container) string {
 	b, _ := io.ReadAll(io.LimitReader(r, 4<<20))
 	return string(b)
 }
+
+// ClientMode selects the networking implementation in a disposable agent container.
+type ClientMode string
+
+const (
+	// ClientModeKernel uses the host kernel overlay implementation inside the container.
+	ClientModeKernel ClientMode = "kernel"
+	// ClientModeUserspace uses the in-process implementation with a TUN device.
+	ClientModeUserspace ClientMode = "userspace"
+	// ClientModeNetstack uses the in-process network stack without a TUN device.
+	ClientModeNetstack ClientMode = "netstack"
+)
+
+// WithClientEnv adds or overrides daemon environment variables in this client container.
+func WithClientEnv(env map[string]string) ClientOption {
+	copyEnv := make(map[string]string, len(env))
+	for key, value := range env {
+		copyEnv[key] = value
+	}
+	return func(o *clientOptions) {
+		if o.env == nil {
+			o.env = make(map[string]string)
+		}
+		for key, value := range copyEnv {
+			o.env[key] = value
+		}
+	}
+}
+
+// WithClientImage runs a specific published client image, enabling older-client acceptance scenarios.
+func WithClientImage(image string) ClientOption { return func(o *clientOptions) { o.image = image } }
+
+// WithClientMode configures the real daemon networking mode and netstack forwarding.
+func WithClientMode(mode ClientMode) ClientOption {
+	return func(o *clientOptions) {
+		o.mode = mode
+		WithClientEnv(map[string]string{
+			"NB_WG_KERNEL_DISABLED":               strconv.FormatBool(mode != ClientModeKernel),
+			"NB_USE_NETSTACK_MODE":                strconv.FormatBool(mode == ClientModeNetstack),
+			"NB_ENABLE_NETSTACK_LOCAL_FORWARDING": strconv.FormatBool(mode == ClientModeNetstack),
+		})(o)
+	}
+}
+
+// HTTP requests a URL through this agent's actual overlay path. Netstack agents
+// use their SOCKS listener; TUN agents use the container routing table.
+func (cl *Client) HTTP(ctx context.Context, url string) (int, string, error) {
+	args := []string{"run", "--rm", "--network", "container:" + cl.container.GetContainerID(), curlImage, "-sS", "--connect-timeout", "5", "--max-time", "10", "-w", "\n%{http_code}"}
+	if cl.mode == ClientModeNetstack {
+		args = append(args, "--socks5-hostname", "127.0.0.1:1080")
+	}
+	args = append(args, url)
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return 0, stdout.String(), fmt.Errorf("client HTTP request: %w (%s)", err, stderr.String())
+	}
+	response := stdout.String()
+	split := strings.LastIndexByte(response, '\n')
+	if split < 0 {
+		return 0, response, fmt.Errorf("curl returned no HTTP status")
+	}
+	status, err := strconv.Atoi(strings.TrimSpace(response[split+1:]))
+	if err != nil {
+		return 0, response, err
+	}
+	return status, response[:split], nil
+}
+
+// ContainerID returns the disposable agent's Docker identity for sidecars that
+// need to share its network namespace, such as a real database fixture.
+func (cl *Client) ContainerID() string { return cl.container.GetContainerID() }
