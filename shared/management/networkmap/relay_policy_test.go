@@ -1,6 +1,8 @@
 package networkmap
 
 import (
+	"fmt"
+	"maps"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -91,10 +93,19 @@ func TestHomeOnlyAndClearedPoliciesPreserveLegacyReachability(t *testing.T) {
 }
 
 func BenchmarkRelayPolicyComputation(b *testing.B) {
-	data, _ := relayComputationFixture()
-	b.ReportAllocs()
-	for b.Loop() {
-		components := &types.NetworkMapComponents{PeerID: "x", Peers: map[string]*nmdata.Peer{"x": data.Peers["x"], "y": data.Peers["y"]}, RouterPeers: map[string]*nmdata.Peer{"z": data.Peers["z"]}}
-		data.applyRelayPolicies(components)
+	for _, peerCount := range []int{3, 100, 1000} {
+		b.Run(fmt.Sprintf("peers-%d", peerCount), func(b *testing.B) {
+			data, _ := relayComputationFixture()
+			for i := 3; i < peerCount; i++ {
+				id := fmt.Sprintf("peer-%d", i)
+				data.Peers[id] = &nmdata.Peer{ID: id, Key: id, Meta: nmdata.PeerSystemMeta{Capabilities: []int32{rp.Capability}}}
+				data.RelayPolicies.Policies[0].Destination.PeerIDs = append(data.RelayPolicies.Policies[0].Destination.PeerIDs, rp.PeerID(id))
+			}
+			b.ReportAllocs()
+			for b.Loop() {
+				components := &types.NetworkMapComponents{PeerID: "x", Peers: maps.Clone(data.Peers)}
+				data.applyRelayPolicies(components)
+			}
+		})
 	}
 }

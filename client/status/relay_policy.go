@@ -30,7 +30,7 @@ func mapRelayPolicy(p *proto.RelayPolicyStatus) *RelayPolicyOutput {
 }
 
 func mapRelayPolicies(policies []*proto.RelayPolicyStatus) []RelayPolicyOutput {
-	output := make([]RelayPolicyOutput, 0, len(policies))
+	var output []RelayPolicyOutput
 	for _, p := range policies {
 		if mapped := mapRelayPolicy(p); mapped != nil {
 			output = append(output, *mapped)

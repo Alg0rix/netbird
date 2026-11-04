@@ -68,6 +68,7 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 	components.Groups = relevantGroups
 	components.Policies = relevantPolicies
 	components.Routes = relevantRoutes
+	components.AllDNSRecords = filterDNSRecordsByPeers(peersCustomZone.Records, relevantPeers, peer.SupportsIPv6() && peer.IPv6.IsValid())
 
 	peerGroups := nmd.GetPeerGroups(peerID)
 	components.AccountZones = nmd.appliedZones(peerGroups)
@@ -190,7 +191,7 @@ func (nmd *NetworkMapData) GetPeerNetworkMapComponents(peerID string, peersCusto
 
 	nmd.applyRelayPolicies(components)
 	filterGroupPeers(&components.Groups, components.Peers)
-	components.AllDNSRecords = filterDNSRecordsByPeers(peersCustomZone.Records, components.Peers, peer.SupportsIPv6() && peer.IPv6.IsValid())
+	components.AllDNSRecords = filterDNSRecordsByPeers(components.AllDNSRecords, components.Peers, peer.SupportsIPv6() && peer.IPv6.IsValid())
 	nmd.collectPostureFailedPeers(components, sourceFailures)
 
 	return components
