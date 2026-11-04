@@ -25,7 +25,7 @@ func TestRelayFinalConfirmationIsBounded(t *testing.T) {
 		acknowledgments <- &OfferAnswer{RelayPolicyAttempt: stale}
 		sends := 0
 		started := time.Now()
-		err := awaitRelayConfirmation(ctx, selection, acknowledgments, func(*sproto.RelayPolicyAttempt) error {
+		err := awaitRelayConfirmation(ctx, selection, acknowledgments, func(context.Context, *sproto.RelayPolicyAttempt) error {
 			sends++
 			return nil
 		})
@@ -43,7 +43,7 @@ func TestRelayFinalConfirmationRequiresMatchingAttempt(t *testing.T) {
 		acknowledgments := make(chan *OfferAnswer, 1)
 		started := time.Now()
 		sends := 0
-		err := awaitRelayConfirmation(ctx, selection, acknowledgments, func(attempt *sproto.RelayPolicyAttempt) error {
+		err := awaitRelayConfirmation(ctx, selection, acknowledgments, func(_ context.Context, attempt *sproto.RelayPolicyAttempt) error {
 			sends++
 			if sends == 2 {
 				confirmed := cloneAttempt(attempt)
@@ -123,4 +123,18 @@ func TestManagedAttemptRequiresBothNoncesAndConcreteIdentity(t *testing.T) {
 		mutate(b)
 		assert.False(t, sameAttempt(a, b), "an acknowledgment from another attempt cannot install a path")
 	}
+}
+
+func TestRelayFinalConfirmationCancelsBlockedSend(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), relayAttemptTimeout)
+		defer cancel()
+		started := time.Now()
+		err := awaitRelayConfirmation(ctx, &sproto.RelayPolicyAttempt{Phase: 2}, make(chan *OfferAnswer), func(sendCtx context.Context, _ *sproto.RelayPolicyAttempt) error {
+			<-sendCtx.Done()
+			return sendCtx.Err()
+		})
+		assert.ErrorIs(t, err, context.DeadlineExceeded, "blocked confirmation send must respect establishment deadline")
+		assert.Equal(t, relayAttemptTimeout, time.Since(started), "signaling must not extend the attempt lifetime")
+	})
 }

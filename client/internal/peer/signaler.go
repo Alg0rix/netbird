@@ -1,6 +1,8 @@
 package peer
 
 import (
+	"context"
+
 	"github.com/netbirdio/ice/v4"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -29,6 +31,11 @@ func (s *Signaler) SignalAnswer(offer OfferAnswer, remoteKey string) error {
 	return s.signalOfferAnswer(offer, remoteKey, sProto.Body_ANSWER)
 }
 
+// SignalAnswerContext sends an answer within the caller's negotiation lifetime.
+func (s *Signaler) SignalAnswerContext(ctx context.Context, offer OfferAnswer, remoteKey string) error {
+	return s.signalOfferAnswerContext(ctx, offer, remoteKey, sProto.Body_ANSWER)
+}
+
 func (s *Signaler) SignalICECandidate(candidate ice.Candidate, remoteKey string) error {
 	return s.signal.Send(&sProto.Message{
 		Key:       s.wgPrivateKey.PublicKey().String(),
@@ -46,6 +53,10 @@ func (s *Signaler) Ready() bool {
 
 // SignalOfferAnswer signals either an offer or an answer to remote peer
 func (s *Signaler) signalOfferAnswer(offerAnswer OfferAnswer, remoteKey string, bodyType sProto.Body_Type) error {
+	return s.signalOfferAnswerContext(nil, offerAnswer, remoteKey, bodyType)
+}
+
+func (s *Signaler) signalOfferAnswerContext(ctx context.Context, offerAnswer OfferAnswer, remoteKey string, bodyType sProto.Body_Type) error {
 	var sessionIDBytes []byte
 	if offerAnswer.SessionID != nil {
 		var err error
@@ -72,6 +83,16 @@ func (s *Signaler) signalOfferAnswer(offerAnswer OfferAnswer, remoteKey string, 
 		return err
 	}
 
+	if ctx != nil {
+		if sender, ok := s.signal.(interface {
+			SendContext(context.Context, *sProto.Message) error
+		}); ok {
+			return sender.SendContext(ctx, msg)
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
 	if err = s.signal.Send(msg); err != nil {
 		return err
 	}

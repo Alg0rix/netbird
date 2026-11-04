@@ -524,6 +524,15 @@ func (c *GrpcClient) Send(msg *proto.Message) error {
 	return c.send(c.ctx, msg)
 }
 
+// SendContext sends a message until the caller or Signal client lifetime ends.
+func (c *GrpcClient) SendContext(ctx context.Context, msg *proto.Message) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := context.AfterFunc(c.ctx, cancel)
+	defer stop()
+	return c.send(ctx, msg)
+}
+
 // send delivers a message deriving per-attempt timeouts from parentCtx, so a
 // caller can abort an in-flight send by cancelling that context.
 func (c *GrpcClient) send(parentCtx context.Context, msg *proto.Message) error {
@@ -539,6 +548,9 @@ func (c *GrpcClient) send(parentCtx context.Context, msg *proto.Message) error {
 	attemptTimeout := client.ConnectTimeout
 
 	for attempt := 0; attempt < 4; attempt++ {
+		if err := parentCtx.Err(); err != nil {
+			return err
+		}
 		if attempt > 1 {
 			attemptTimeout = time.Duration(attempt) * 5 * time.Second
 		}

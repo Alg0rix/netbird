@@ -71,10 +71,10 @@ func sameAttempt(a, b *sproto.RelayPolicyAttempt) bool {
 	return a != nil && b != nil && a.Digest == b.Digest && a.CatalogGeneration == b.CatalogGeneration && a.ReselectionGeneration == b.ReselectionGeneration && bytes.Equal(a.Nonce, b.Nonce) && bytes.Equal(a.ResponderNonce, b.ResponderNonce) && a.Sequence == b.Sequence && a.RelayId == b.RelayId && a.Instance == b.Instance
 }
 
-func (m *managedRelay) send(a *sproto.RelayPolicyAttempt) error {
+func (m *managedRelay) send(ctx context.Context, a *sproto.RelayPolicyAttempt) error {
 	w := m.worker
 	offer := OfferAnswer{WgListenPort: w.config.LocalWgPort, RosenpassPubKey: w.config.RosenpassConfig.PubKey, RosenpassAddr: w.config.RosenpassConfig.Addr, RelayPolicyAttempt: cloneAttempt(a)}
-	return w.conn.signaler.SignalAnswer(offer, w.config.Key)
+	return w.conn.signaler.SignalAnswerContext(ctx, offer, w.config.Key)
 }
 
 func (m *managedRelay) receive(remote *OfferAnswer) {
@@ -226,7 +226,7 @@ func (m *managedRelay) respond(ctx context.Context, remote *OfferAnswer) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
-		if err := m.send(ready); err != nil {
+		if err := m.send(establishment, ready); err != nil {
 			m.worker.log.Debugf("send relay readiness: %v", err)
 		}
 		select {
@@ -244,9 +244,13 @@ func (m *managedRelay) respond(ctx context.Context, remote *OfferAnswer) {
 			}
 			installed = true
 			finish()
+			confirmationCtx, cancelConfirmation := context.WithCancel(ctx)
+			defer cancelConfirmation()
+			stopConfirmation := context.AfterFunc(conn.Context(), cancelConfirmation)
+			defer stopConfirmation()
 			confirmed := cloneAttempt(a)
 			confirmed.Phase = 3
-			if err := m.send(confirmed); err != nil {
+			if err := m.send(confirmationCtx, confirmed); err != nil {
 				m.worker.log.Debugf("acknowledge relay confirmation: %v", err)
 			}
 			for {
@@ -260,7 +264,7 @@ func (m *managedRelay) respond(ctx context.Context, remote *OfferAnswer) {
 					return
 				case retry := <-m.ack:
 					if sameAttempt(a, retry.RelayPolicyAttempt) && retry.RelayPolicyAttempt.Phase == 2 {
-						if err := m.send(confirmed); err != nil {
+						if err := m.send(confirmationCtx, confirmed); err != nil {
 							m.worker.log.Debugf("repeat relay confirmation: %v", err)
 						}
 					}
@@ -384,7 +388,7 @@ func (m *managedRelay) attempt(lease *relayClient.Registration, entry rp.RelayCa
 	m.current = a
 	m.cancel = cancel
 	m.mu.Unlock()
-	if err := m.send(a); err != nil {
+	if err := m.send(establishment, a); err != nil {
 		m.worker.log.Debugf("send initial relay selection: %v", err)
 	}
 	openDone := make(chan struct{})
@@ -398,7 +402,7 @@ func (m *managedRelay) attempt(lease *relayClient.Registration, entry rp.RelayCa
 			case <-openDone:
 				return
 			case <-ticker.C:
-				if err := m.send(a); err != nil {
+				if err := m.send(establishment, a); err != nil {
 					m.worker.log.Debugf("repeat pending relay selection: %v", err)
 				}
 			}
@@ -414,7 +418,7 @@ func (m *managedRelay) attempt(lease *relayClient.Registration, entry rp.RelayCa
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
-		if err := m.send(a); err != nil {
+		if err := m.send(establishment, a); err != nil {
 			m.worker.log.Debugf("send relay selection: %v", err)
 		}
 		select {
@@ -456,7 +460,7 @@ func (m *managedRelay) attempt(lease *relayClient.Registration, entry rp.RelayCa
 	}
 }
 
-func awaitRelayConfirmation(ctx context.Context, confirmed *sproto.RelayPolicyAttempt, acknowledgments <-chan *OfferAnswer, send func(*sproto.RelayPolicyAttempt) error) error {
+func awaitRelayConfirmation(ctx context.Context, confirmed *sproto.RelayPolicyAttempt, acknowledgments <-chan *OfferAnswer, send func(context.Context, *sproto.RelayPolicyAttempt) error) error {
 	retry := time.NewTicker(time.Second)
 	defer retry.Stop()
 retransmit:
@@ -464,7 +468,7 @@ retransmit:
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := send(confirmed); err != nil {
+		if err := send(ctx, confirmed); err != nil {
 			return err
 		}
 		for {
