@@ -433,8 +433,13 @@ func (m *managedRelay) attempt(lease *relayClient.Registration, entry rp.RelayCa
 			}
 			confirmed := cloneAttempt(a)
 			confirmed.Phase = 2
-			if err := m.send(confirmed); err != nil {
-				continue
+			if err := awaitRelayConfirmation(establishment, confirmed, m.ack, m.send); err != nil {
+				m.recordFailure(relayAttemptFailure(err), false)
+				cancel()
+				if err := conn.Close(); err != nil {
+					m.worker.log.Debugf("close unconfirmed relay connection: %v", err)
+				}
+				return false
 			}
 			if !m.install(ctx, a, lease, conn, remote) {
 				cancel()
@@ -447,6 +452,32 @@ func (m *managedRelay) attempt(lease *relayClient.Registration, entry rp.RelayCa
 			go m.hold(ctx, cancel, lease, conn, confirmed)
 
 			return true
+		}
+	}
+}
+
+func awaitRelayConfirmation(ctx context.Context, confirmed *sproto.RelayPolicyAttempt, acknowledgments <-chan *OfferAnswer, send func(*sproto.RelayPolicyAttempt) error) error {
+	retry := time.NewTicker(time.Second)
+	defer retry.Stop()
+retransmit:
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := send(confirmed); err != nil {
+			return err
+		}
+		for {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-retry.C:
+				continue retransmit
+			case answer := <-acknowledgments:
+				if answer != nil && sameAttempt(confirmed, answer.RelayPolicyAttempt) && answer.RelayPolicyAttempt.Phase == 3 {
+					return ctx.Err()
+				}
+			}
 		}
 	}
 }
@@ -476,9 +507,6 @@ func (m *managedRelay) hold(ctx context.Context, cancel context.CancelFunc, leas
 			go m.restart()
 		}
 	}()
-	retry := time.NewTicker(time.Second)
-	defer retry.Stop()
-	acknowledged := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -488,16 +516,6 @@ func (m *managedRelay) hold(ctx context.Context, cancel context.CancelFunc, leas
 			return
 		case <-conn.Context().Done():
 			return
-		case answer := <-m.ack:
-			if sameAttempt(confirmed, answer.RelayPolicyAttempt) && answer.RelayPolicyAttempt.Phase == 3 {
-				acknowledged = true
-			}
-		case <-retry.C:
-			if !acknowledged {
-				if err := m.send(confirmed); err != nil {
-					m.worker.log.Debugf("repeat relay selection confirmation: %v", err)
-				}
-			}
 		}
 	}
 }

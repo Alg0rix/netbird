@@ -4,12 +4,58 @@ import (
 	"bytes"
 	"context"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	rp "github.com/netbirdio/netbird/shared/management/relaypolicy"
 	sproto "github.com/netbirdio/netbird/shared/signal/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestRelayFinalConfirmationIsBounded(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), relayAttemptTimeout)
+		defer cancel()
+		selection := &sproto.RelayPolicyAttempt{Digest: "current", Sequence: 3, Phase: 2}
+		acknowledgments := make(chan *OfferAnswer, 1)
+		stale := cloneAttempt(selection)
+		stale.Sequence--
+		stale.Phase = 3
+		acknowledgments <- &OfferAnswer{RelayPolicyAttempt: stale}
+		sends := 0
+		started := time.Now()
+		err := awaitRelayConfirmation(ctx, selection, acknowledgments, func(*sproto.RelayPolicyAttempt) error {
+			sends++
+			return nil
+		})
+		assert.ErrorIs(t, err, context.DeadlineExceeded, "a missing current confirmation must allow permitted fallback")
+		assert.Equal(t, relayAttemptTimeout, time.Since(started), "registration liveness cannot extend establishment")
+		assert.Greater(t, sends, 1, "lost confirmation must trigger bounded retransmissions")
+	})
+}
+
+func TestRelayFinalConfirmationRequiresMatchingAttempt(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), relayAttemptTimeout)
+		defer cancel()
+		selection := &sproto.RelayPolicyAttempt{Digest: "current", Sequence: 3, Phase: 2}
+		acknowledgments := make(chan *OfferAnswer, 1)
+		started := time.Now()
+		sends := 0
+		err := awaitRelayConfirmation(ctx, selection, acknowledgments, func(attempt *sproto.RelayPolicyAttempt) error {
+			sends++
+			if sends == 2 {
+				confirmed := cloneAttempt(attempt)
+				confirmed.Phase = 3
+				acknowledgments <- &OfferAnswer{RelayPolicyAttempt: confirmed}
+			}
+			return nil
+		})
+		assert.NoError(t, err)
+		assert.Equal(t, time.Second, time.Since(started), "matching confirmation should finish without consuming the full deadline")
+	})
+}
 
 func TestManagedPolicyRejectsUnmatchedInstructions(t *testing.T) {
 	p := &rp.ResolvedRelayPolicy{State: rp.RelayPolicyReady, Digest: "desired", CatalogGeneration: 4, ReselectionGeneration: 8, Tiers: [][]rp.RelayCatalogEntry{{{ID: "a"}}}}
