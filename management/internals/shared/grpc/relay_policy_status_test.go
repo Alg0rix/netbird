@@ -2,27 +2,27 @@ package grpc
 
 import (
 	"context"
-	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
-	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
-	"github.com/netbirdio/netbird/management/server/account"
-	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
-	"go.uber.org/mock/gomock"
-	grpcbase "google.golang.org/grpc"
-	"net"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	grpcbase "google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/encryption"
+	"github.com/netbirdio/netbird/management/internals/controllers/network_map"
+	nbconfig "github.com/netbirdio/netbird/management/internals/server/config"
+	"github.com/netbirdio/netbird/management/server/account"
 	nbpeer "github.com/netbirdio/netbird/management/server/peer"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
+	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	rp "github.com/netbirdio/netbird/shared/management/relaypolicy"
 )
@@ -106,7 +106,7 @@ func TestInitialSyncReportsCurrentOwningSession(t *testing.T) {
 	require.NoError(t, err)
 	clientKey, err := wgtypes.GeneratePrivateKey()
 	require.NoError(t, err)
-	require.NoError(t, repository.SaveAccount(ctx, &types.Account{Id: "account", Peers: map[string]*nbpeer.Peer{"local": {ID: "local", AccountID: "account", Key: clientKey.PublicKey().String(), IP: net.ParseIP("100.64.0.1"), Status: &nbpeer.PeerStatus{}}}}))
+	require.NoError(t, repository.SaveAccount(ctx, &types.Account{Id: "account", Peers: map[string]*nbpeer.Peer{"local": {ID: "local", AccountID: "account", Key: clientKey.PublicKey().String(), IP: netip.MustParseAddr("100.64.0.1"), Status: &nbpeer.PeerStatus{}}}}))
 	beforeConnect, err := repository.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, clientKey.PublicKey().String())
 	require.NoError(t, err)
 	require.Zero(t, beforeConnect.Status.SessionStartedAt, "first sync must begin without a previous session")
