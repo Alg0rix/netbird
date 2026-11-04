@@ -40,13 +40,17 @@ func (m *Manager) Report(ctx context.Context, accountID rp.AccountID, local rp.P
 		if account.Peers[string(local)] == nil {
 			return status.Errorf(status.PermissionDenied, "reporting peer does not own this account endpoint")
 		}
+		resolver, err := newEndpointPolicyResolver(account, local)
+		if err != nil {
+			return err
+		}
 		seen := make(map[rp.PeerID]struct{}, len(reports))
 		for _, report := range reports {
 			if _, exists := seen[report.RemotePeerID]; exists {
 				return status.Errorf(status.InvalidArgument, "duplicate relay report target")
 			}
 			seen[report.RemotePeerID] = struct{}{}
-			policy, err := effective(ctx, account, local, report.RemotePeerID)
+			policy, err := resolver.resolve(ctx, report.RemotePeerID)
 			if err != nil {
 				return err
 			}

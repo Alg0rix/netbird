@@ -138,3 +138,53 @@ func resolveWithGeneration(account *types.Account, a, b sharedrelay.PeerID, atte
 	}
 	return relaypolicy.ResolvePair(input, a, b, options)
 }
+
+type endpointPolicyResolver struct {
+	account     *types.Account
+	local       sharedrelay.PeerID
+	resolver    *sharedrelay.Resolver
+	authorized  map[sharedrelay.PeerID]struct{}
+	generations map[sharedrelay.PeerID]uint64
+}
+
+func newEndpointPolicyResolver(account *types.Account, local sharedrelay.PeerID) (*endpointPolicyResolver, error) {
+	if local == "" || account.Peers[string(local)] == nil {
+		return nil, status.Errorf(status.NotFound, "relay target not found")
+	}
+	resolver, err := sharedrelay.NewResolver(account.RelayPolicyInput())
+	if err != nil {
+		return nil, err
+	}
+	r := &endpointPolicyResolver{account: account, local: local, resolver: resolver,
+		generations: make(map[sharedrelay.PeerID]uint64)}
+	for _, directive := range account.RelayReselections {
+		switch {
+		case directive.PeerA == local:
+			r.generations[directive.PeerB] = directive.Generation
+		case directive.PeerB == local:
+			r.generations[directive.PeerA] = directive.Generation
+		}
+	}
+	return r, nil
+}
+
+func (r *endpointPolicyResolver) resolve(ctx context.Context, remote sharedrelay.PeerID) (*sharedrelay.ResolvedRelayPolicy, error) {
+	options := sharedrelay.ResolveOptions{ReselectionGeneration: r.generations[remote]}
+	if remote == "" {
+		return r.resolver.ResolveHome(r.local, options)
+	}
+	if remote == r.local || r.account.Peers[string(remote)] == nil {
+		return nil, status.Errorf(status.NotFound, "relay target not found")
+	}
+	if r.authorized == nil {
+		r.authorized = make(map[sharedrelay.PeerID]struct{})
+		peers, _, _, _ := r.account.GetPeerConnectionResources(ctx, r.account.Peers[string(r.local)], validatedPeers(r.account), nil)
+		for _, peer := range peers {
+			r.authorized[sharedrelay.PeerID(peer.ID)] = struct{}{}
+		}
+	}
+	if _, allowed := r.authorized[remote]; !allowed {
+		return nil, status.Errorf(status.PermissionDenied, "pair is not authorized by access policy")
+	}
+	return r.resolver.ResolvePair(r.local, remote, options)
+}
