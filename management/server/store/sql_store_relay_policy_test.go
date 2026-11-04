@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"net/netip"
 	"runtime"
 	"sync"
 	"testing"
@@ -32,8 +33,8 @@ func newRelayStore(t *testing.T) (*SqlStore, *types.Account) {
 	require.True(t, ok, "relay persistence tests require the real SQL store")
 	account := newAccountWithId(ctx, "relay-account", "relay-owner", "")
 	account.Peers = map[string]*nbpeer.Peer{
-		"x": {ID: "x", AccountID: account.Id, Key: "relay-x"},
-		"y": {ID: "y", AccountID: account.Id, Key: "relay-y"},
+		"x": {ID: "x", DNSLabel: "x", IP: netip.MustParseAddr("100.64.0.1"), AccountID: account.Id, Key: "relay-x"},
+		"y": {ID: "y", DNSLabel: "y", IP: netip.MustParseAddr("100.64.0.2"), AccountID: account.Id, Key: "relay-y"},
 	}
 	require.NoError(t, base.SaveAccount(ctx, account))
 	_, err = sqlStore.InitializeRelayCatalog(ctx, relayTestCatalog())

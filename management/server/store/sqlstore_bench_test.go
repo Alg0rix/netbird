@@ -31,6 +31,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/testutil"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/route"
+	rp "github.com/netbirdio/netbird/shared/management/relaypolicy"
 	"github.com/netbirdio/netbird/shared/management/status"
 )
 
@@ -276,6 +277,8 @@ func setupBenchmarkDB(b testing.TB) (*SqlStore, func(), string) {
 		&routerTypes.NetworkRouter{}, &resourceTypes.NetworkResource{},
 		&types.AccountOnboarding{}, &service.Service{}, &service.Target{},
 		&domain.Domain{}, &nbpeer.ManagementInstance{}, &nbpeer.Connection{},
+		&types.RelayGroup{}, &types.RelayHomeProfile{}, &types.RelayPairPolicy{},
+		&types.RelayReselection{}, &types.RelayAccountState{}, &rp.CatalogHead{}, &rp.CatalogPublication{},
 	}
 
 	for i := len(models) - 1; i >= 0; i-- {

@@ -2015,6 +2015,12 @@ func TestAccount_Copy(t *testing.T) {
 			},
 		},
 		PostureValidation: map[string]map[string]bool{"1": {"1": true}},
+		RelayGroups:       []types.RelayGroup{{ID: "relays", RelayIDs: []types.RelayID{"a"}}},
+		RelayHomeProfiles: []types.RelayHomeProfile{{ID: "home", Selector: types.RelaySelector{PeerIDs: []types.PeerID{"peer1"}}}},
+		RelayPairPolicies: []types.RelayPairPolicy{{ID: "pair", Constraints: types.RelayConstraints{Allow: &types.RelaySelection{RelayIDs: []types.RelayID{"a"}}}}},
+		RelayReselections: []types.RelayReselection{{PeerA: "peer1", Generation: 1}},
+		RelayState:        &types.RelayAccountState{Revision: 1},
+		RelayCatalog:      &types.RelayCatalog{Generation: 1, Entries: []types.RelayCatalogEntry{{ID: "a", Aliases: []types.RelayEndpoint{"rels://alias.example:443"}}}},
 	}
 	err := hasNilField(account)
 	if err != nil {
@@ -2026,6 +2032,12 @@ func TestAccount_Copy(t *testing.T) {
 		t.Fatal(err)
 	}
 	account.Peers["peer1"].Status.Connected = false // we change original object to confirm that copy won't change
+	account.RelayGroups[0].RelayIDs[0] = "changed"
+	account.RelayHomeProfiles[0].Selector.PeerIDs[0] = "changed"
+	account.RelayPairPolicies[0].Constraints.Allow.RelayIDs[0] = "changed"
+	account.RelayReselections[0].Generation++
+	account.RelayState.Revision++
+	account.RelayCatalog.Entries[0].Aliases[0] = "rels://changed.example:443"
 	accCopyBytes, err := json.Marshal(accountCopy)
 	if err != nil {
 		t.Fatal(err)
