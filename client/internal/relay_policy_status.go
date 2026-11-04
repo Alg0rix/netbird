@@ -112,7 +112,7 @@ func reportFromObservation(o peer.RelayPolicyObservation) *mgmProto.RelayPathRep
 	return &mgmProto.RelayPathReport{RemotePeerKey: string(o.RemotePeerKey), Revision: o.DesiredRevision, Digest: string(o.Digest), CatalogGeneration: o.CatalogGeneration, ReselectionGeneration: o.ReselectionGeneration, Attempt: o.Attempt, Transport: transport, RelayId: string(o.RelayID), State: state, Reason: string(o.Reason)}
 }
 
-func (e *Engine) startRelayPolicyReporter() {
+func (e *Engine) startRelayPolicyReporter(ctx context.Context) {
 	e.shutdownWg.Add(1)
 	go func() {
 		defer e.shutdownWg.Done()
@@ -122,7 +122,7 @@ func (e *Engine) startRelayPolicyReporter() {
 		var lastReport time.Time
 		for {
 			select {
-			case <-e.ctx.Done():
+			case <-ctx.Done():
 				return
 			case <-ticker.C:
 			}
@@ -141,7 +141,7 @@ func (e *Engine) startRelayPolicyReporter() {
 			}
 			for offset := 0; offset < len(reports); offset += rp.MaxReports {
 				end := min(offset+rp.MaxReports, len(reports))
-				if err := reporter.ReportRelayPolicyStatus(e.ctx, reports[offset:end]); err != nil {
+				if err := reporter.ReportRelayPolicyStatus(ctx, reports[offset:end]); err != nil {
 					log.Debugf("report relay policy observations: %v", err)
 					break
 				}

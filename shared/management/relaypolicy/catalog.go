@@ -12,8 +12,22 @@ import (
 	"strings"
 )
 
+const (
+	// MaxCatalogEntries bounds both operator publication and decoded policy identities.
+	MaxCatalogEntries = 4096
+	// MaxRelayAliases bounds approved alternate endpoints for one concrete instance.
+	MaxRelayAliases = 128
+	// MaxRelayEndpointLength bounds native relay addresses before URL parsing.
+	MaxRelayEndpointLength = 512
+	// MaxRelayIDLength bounds stable operator relay identities.
+	MaxRelayIDLength = 128
+)
+
 // CanonicalEndpoint validates and normalizes a native relay URL without resolving DNS.
 func CanonicalEndpoint(endpoint RelayEndpoint) (RelayEndpoint, error) {
+	if len(endpoint) > MaxRelayEndpointLength {
+		return "", fmt.Errorf("relay endpoint exceeds length limit")
+	}
 	u, err := url.Parse(string(endpoint))
 	if err != nil {
 		return "", fmt.Errorf("parse relay endpoint: %w", err)
@@ -71,16 +85,22 @@ func validHostname(host string) bool {
 // ValidateCatalog returns a canonical, detached catalog or rejects ambiguous identities.
 func ValidateCatalog(catalog RelayCatalog) (RelayCatalog, error) {
 	result := RelayCatalog{Generation: catalog.Generation}
+	if len(catalog.Entries) > MaxCatalogEntries {
+		return result, fmt.Errorf("relay catalog exceeds entry limit")
+	}
 	ids := make(map[RelayID]struct{}, len(catalog.Entries))
 	endpoints := make(map[RelayEndpoint]RelayID)
 	for _, entry := range catalog.Entries {
-		if entry.ID == "" || strings.TrimSpace(string(entry.ID)) != string(entry.ID) {
+		if entry.ID == "" || len(entry.ID) > MaxRelayIDLength || strings.TrimSpace(string(entry.ID)) != string(entry.ID) {
 			return result, fmt.Errorf("empty or invalid relay identity")
 		}
 		if _, exists := ids[entry.ID]; exists {
 			return result, fmt.Errorf("duplicate relay identity %s", entry.ID)
 		}
 		ids[entry.ID] = struct{}{}
+		if len(entry.Aliases) > MaxRelayAliases {
+			return result, fmt.Errorf("relay %s exceeds alias limit", entry.ID)
+		}
 		var err error
 		entry.Endpoint, err = CanonicalEndpoint(entry.Endpoint)
 		if err != nil {

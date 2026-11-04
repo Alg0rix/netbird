@@ -2,12 +2,17 @@ package networkmap
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 
 	"github.com/netbirdio/netbird/shared/management/networkmap/nmdata"
 	"github.com/netbirdio/netbird/shared/management/proto"
 	rp "github.com/netbirdio/netbird/shared/management/relaypolicy"
 )
+
+// ErrInvalidRelayPolicy identifies present relay instructions that cannot be enforced.
+// Clients must revoke affected existing paths before continuing the sync stream.
+var ErrInvalidRelayPolicy = errors.New("invalid relay policy instructions")
 
 // ToProtocolRelayPolicy preserves presence and resolved transport fences on the wire.
 func ToProtocolRelayPolicy(policy *rp.ResolvedRelayPolicy) *proto.RelayPolicy {
@@ -65,7 +70,7 @@ func FromProtocolRelayPolicy(policy *proto.RelayPolicy) (*rp.ResolvedRelayPolicy
 	if err != nil {
 		return nil, err
 	}
-	if len(policy.Tiers) > 65 || len(policy.Contributors) > 1000 || len(policy.Eliminated) > 4096 {
+	if len(policy.Tiers) > 65 || len(policy.Contributors) > 1000 || len(policy.Eliminated) > rp.MaxCatalogEntries {
 		return nil, fmt.Errorf("relay policy exceeds instruction limits")
 	}
 	if policy.Revision == 0 || policy.CatalogGeneration == 0 {
@@ -82,12 +87,12 @@ func FromProtocolRelayPolicy(policy *proto.RelayPolicy) (*rp.ResolvedRelayPolicy
 	}
 	var entries []rp.RelayCatalogEntry
 	for _, tier := range policy.Tiers {
-		if tier == nil || len(tier.Relays) == 0 || len(tier.Relays) > 4096-len(entries) {
+		if tier == nil || len(tier.Relays) == 0 || len(tier.Relays) > rp.MaxCatalogEntries-len(entries) {
 			return nil, fmt.Errorf("invalid relay priority tier")
 		}
 		converted := make([]rp.RelayCatalogEntry, 0, len(tier.Relays))
 		for _, entry := range tier.Relays {
-			if entry == nil || !entry.Active || entry.Legacy || len(entry.Aliases) > 128 {
+			if entry == nil || !entry.Active || entry.Legacy || len(entry.Aliases) > rp.MaxRelayAliases {
 				return nil, fmt.Errorf("relay policy contains an unapproved relay")
 			}
 			aliases := make([]rp.RelayEndpoint, len(entry.Aliases))
@@ -117,7 +122,7 @@ func FromProtocolRelayPolicy(policy *proto.RelayPolicy) (*rp.ResolvedRelayPolicy
 		}
 	}
 	for _, contributor := range policy.Contributors {
-		if contributor == nil || len(contributor.Eliminated) > 4096 {
+		if contributor == nil || len(contributor.Eliminated) > rp.MaxCatalogEntries {
 			return nil, fmt.Errorf("invalid relay policy contributor")
 		}
 		result.Contributors = append(result.Contributors, rp.Contribution{

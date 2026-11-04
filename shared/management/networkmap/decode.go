@@ -89,18 +89,18 @@ func DecodeEnvelope(ctx context.Context, env *proto.NetworkMapEnvelope) (*types.
 	homeWire := full.HomeRelayPolicy
 	if peerHome := full.PeerConfig.GetHomeRelayPolicy(); peerHome != nil {
 		if homeWire != nil && !goproto.Equal(homeWire, peerHome) {
-			return nil, fmt.Errorf("conflicting home relay instructions")
+			return nil, fmt.Errorf("%w: conflicting home relay instructions", ErrInvalidRelayPolicy)
 		}
 		homeWire = peerHome
 	}
 	homePolicy, err := FromProtocolRelayPolicy(homeWire)
 	if err != nil {
-		return nil, fmt.Errorf("decode home relay policy: %w", err)
+		return nil, fmt.Errorf("%w: decode home relay policy: %w", ErrInvalidRelayPolicy, err)
 	}
 	c.HomeRelayPolicy = homePolicy
 	c.PairRelayPolicies, err = decodePairRelayPolicies(full.PairRelayPolicies, c.Peers)
 	if err != nil {
-		return nil, fmt.Errorf("decode pair relay policies: %w", err)
+		return nil, fmt.Errorf("%w: decode pair relay policies: %w", ErrInvalidRelayPolicy, err)
 	}
 
 	// Phase 2: groups.

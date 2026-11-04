@@ -1086,7 +1086,7 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		// RoutesFirewallRules would be built and then dropped. On a peer that
 		// routes many network resources that is the single most expensive
 		// step of the sync.
-		result, err := nbnetworkmap.EnvelopeToNetworkMap(e.ctx, envelope, localKey, dnsName, e.config.DisableFirewall)
+		result, err := e.decodeComponentNetworkMap(envelope, localKey, dnsName)
 		if err != nil {
 			return fmt.Errorf("decode network map envelope: %w", err)
 		}
@@ -1560,15 +1560,17 @@ func validateBundleUploadURL(raw string) error {
 // receiveManagementEvents connects to the Management Service event stream to receive updates from the management service
 // E.g. when a new peer has been registered and we are allowed to connect to it.
 func (e *Engine) receiveManagementEvents() {
-	e.startRelayPolicyReporter()
+	streamCtx, cancelStream := context.WithCancel(e.ctx)
+	e.startRelayPolicyReporter(streamCtx)
 	e.shutdownWg.Add(1)
 	go func() {
 		defer e.shutdownWg.Done()
-		info, ok := e.infoSource.Refresh(e.ctx, e.infoGatherTimeout(), e.appliedChecks(), e.overlayAddresses()...)
+		defer cancelStream()
+		info, ok := e.infoSource.Refresh(streamCtx, e.infoGatherTimeout(), e.appliedChecks(), e.overlayAddresses()...)
 		if !ok {
 			log.Warnf("posture checks not refreshed before the sync connect, sending the previous results")
 		}
-		err := e.mgmClient.Sync(e.ctx, e.syncInfoFunc(info), e.handleSync)
+		err := e.mgmClient.Sync(streamCtx, e.syncInfoFunc(info), e.handleSync)
 		if err != nil {
 			// happens if management is unavailable for a long time.
 			// We want to cancel the operation of the whole client

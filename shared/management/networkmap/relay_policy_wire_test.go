@@ -2,6 +2,7 @@ package networkmap_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -103,5 +104,22 @@ func TestRelayPolicyComponentMalformedPresenceFailsClosed(t *testing.T) {
 	remoteKey := components.Peers["peer-B"].Key
 	envelope.GetFull().PairRelayPolicies[remoteKey].State = proto.RelayPolicyState(999)
 	_, err := nbnetworkmap.EnvelopeToNetworkMap(context.Background(), envelope, localKey, "netbird.cloud", false)
+	assert.ErrorIs(t, err, nbnetworkmap.ErrInvalidRelayPolicy)
+}
+
+func TestCatalogAliasPublicationAndWireLimitsAgree(t *testing.T) {
+	policy := wireRelayPolicy()
+	for i := range rp.MaxRelayAliases {
+		policy.Tiers[0][0].Aliases = append(policy.Tiers[0][0].Aliases, rp.RelayEndpoint(fmt.Sprintf("rels://alias%d.example:443", i)))
+	}
+	_, err := rp.ValidateCatalog(rp.RelayCatalog{Entries: []rp.RelayCatalogEntry{policy.Tiers[0][0]}})
+	require.NoError(t, err)
+	decoded, err := nbnetworkmap.FromProtocolRelayPolicy(nbnetworkmap.ToProtocolRelayPolicy(policy))
+	require.NoError(t, err)
+	assert.Len(t, decoded.Tiers[0][0].Aliases, rp.MaxRelayAliases, "largest publishable alias set must decode intact")
+	policy.Tiers[0][0].Aliases = append(policy.Tiers[0][0].Aliases, "rels://overflow.example:443")
+	_, err = rp.ValidateCatalog(rp.RelayCatalog{Entries: []rp.RelayCatalogEntry{policy.Tiers[0][0]}})
+	require.Error(t, err)
+	_, err = nbnetworkmap.FromProtocolRelayPolicy(nbnetworkmap.ToProtocolRelayPolicy(policy))
 	assert.Error(t, err)
 }
