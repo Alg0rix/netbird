@@ -119,3 +119,19 @@ func TestRegistrationHomeMetadataUpdateRetainsHealthyFallback(t *testing.T) {
 	assert.True(t, manager.Ready(), "home remains connected after a metadata-only update")
 	assert.Equal(t, policy.Revision, manager.homePolicy.Revision, "new metadata is retained")
 }
+
+func TestRegistrationPreservesDecodedEmptyAliases(t *testing.T) {
+	entry := registrationTestRelay(t)
+	// Protobuf decoding creates an allocated empty alias list.
+	entry.Aliases = []rp.RelayEndpoint{}
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	t.Cleanup(cancel)
+	manager := NewManager(ctx, nil, "registration-decoded-aliases", 1280)
+	require.NoError(t, manager.SetCatalogGeneration(1, []rp.RelayCatalogEntry{entry}))
+	registration, err := manager.AcquireRegistration(ctx, entry)
+	require.NoError(t, err, "a decoded approved selection must retain its identity through registration acquisition")
+	t.Cleanup(registration.Release)
+	address, _, err := registration.InstanceAddress()
+	require.NoError(t, err)
+	assert.Equal(t, string(entry.InstanceEndpoint), address, "the registration must reach the approved concrete relay")
+}

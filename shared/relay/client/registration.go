@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/netip"
 	"reflect"
+	"slices"
 	"sync"
 	"time"
 
@@ -143,7 +144,7 @@ func (m *Manager) AcquireRegistration(ctx context.Context, entry rp.RelayCatalog
 func (m *Manager) acquire(ctx context.Context, address string, ip netip.Addr, entry *rp.RelayCatalogEntry) (*Registration, error) {
 	if entry != nil {
 		copyEntry := *entry
-		copyEntry.Aliases = append([]rp.RelayEndpoint(nil), entry.Aliases...)
+		copyEntry.Aliases = slices.Clone(entry.Aliases)
 		entry = &copyEntry
 	}
 	key := rp.RelayEndpoint(address)
