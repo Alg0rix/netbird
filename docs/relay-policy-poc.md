@@ -6,6 +6,9 @@ Signal, Relay, agent and Dashboard commits or image digests for every run. The
 commands below are procedures to execute after implementation commits, not a
 record of successful tests or measured failover times.
 
+Executed branch validation and its limits are recorded in
+[Relay policy validation](relay-policy-validation.md).
+
 ## Prepare an isolated lab
 
 Use the Docker E2E harness in `e2e/relaypolicy/`, with Docker, BuildKit and the Go
