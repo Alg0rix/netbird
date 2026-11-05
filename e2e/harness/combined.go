@@ -248,6 +248,7 @@ func StartCombined(ctx context.Context, opts ...CombinedOption) (*Combined, erro
 		return nil, fmt.Errorf("mapped port: %w", err)
 	}
 
+	started = true
 	return &Combined{
 		container:   c,
 		network:     net,

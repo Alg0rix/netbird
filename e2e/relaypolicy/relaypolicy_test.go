@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	clientstatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/e2e/harness"
 	"github.com/netbirdio/netbird/shared/management/client/rest"
 	"github.com/netbirdio/netbird/shared/management/http/api"
@@ -51,13 +52,18 @@ type fixture struct {
 
 func newFixture(t *testing.T, s *harness.Combined, management *rest.Client, mode harness.ClientMode, count int, options ...harness.ClientOption) *fixture {
 	t.Helper()
+	return newFixtureInGroups(t, s, management, mode, count, nil, options...)
+}
+
+func newFixtureInGroups(t *testing.T, s *harness.Combined, management *rest.Client, mode harness.ClientMode, count int, autoGroups []string, options ...harness.ClientOption) *fixture {
+	t.Helper()
 	f := &fixture{t: t, server: s, api: management, mode: mode, prefix: fmt.Sprintf("relay-e2e-%d", fixtureSequence.Add(1))}
 	t.Cleanup(f.cleanup)
 	ctx := t.Context()
 	group, err := management.Groups.Create(ctx, api.PostApiGroupsJSONRequestBody{Name: f.prefix})
 	require.NoError(t, err)
 	f.groupID = group.Id
-	key, err := management.SetupKeys.Create(ctx, api.PostApiSetupKeysJSONRequestBody{Name: f.prefix, Type: "reusable", ExpiresIn: 3600, AutoGroups: []string{group.Id}})
+	key, err := management.SetupKeys.Create(ctx, api.PostApiSetupKeysJSONRequestBody{Name: f.prefix, Type: "reusable", ExpiresIn: 3600, AutoGroups: append([]string{group.Id}, autoGroups...)})
 	require.NoError(t, err)
 	f.keyID = key.Id
 	for i := 0; i < count; i++ {
@@ -86,7 +92,18 @@ func newFixture(t *testing.T, s *harness.Combined, management *rest.Client, mode
 			}
 			return false
 		}, time.Minute, time.Second, "registered peer must appear in its own account")
-		code, out, err := client.Exec(ctx, "sh", "-ec", `mkdir -p /tmp/relay-policy-http; printf '%s' "$1" > /tmp/relay-policy-http/index.html; busybox httpd -p 18080 -h /tmp/relay-policy-http`, "fixture", peer.marker)
+		code, out, err := client.Exec(ctx, "sh", "-ec", `mkdir -p /tmp/relay-policy-http
+printf '%s' "$1" > /tmp/relay-policy-http/index.html
+cat > /tmp/relay-policy-http/respond <<'HTTP'
+#!/bin/sh
+while IFS= read -r line; do
+  [ "$line" = "$(printf '\r')" ] && break
+done
+printf 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nConnection: close\r\n\r\n' "$(wc -c < /tmp/relay-policy-http/index.html)"
+cat /tmp/relay-policy-http/index.html
+HTTP
+chmod +x /tmp/relay-policy-http/respond
+busybox nc -lk -p 18080 -e /tmp/relay-policy-http/respond > /tmp/relay-policy-http/server.log 2>&1 < /dev/null &`, "fixture", peer.marker)
 		require.NoError(t, err)
 		require.Zero(t, code, "start the actual destination service: %s", out)
 	}
@@ -217,6 +234,37 @@ func (f *fixture) noBytes(a, b int, duration time.Duration) {
 		}
 	}
 }
+func (f *fixture) waitUnmanagedDirect(a, b int) {
+	f.t.Helper()
+	require.Eventually(f.t, func() bool {
+		if !f.bytes(a, b) {
+			return false
+		}
+		for _, index := range []int{a, b} {
+			code, raw, err := f.peers[index].client.Exec(f.t.Context(), "netbird", "status", "--json")
+			var local clientstatus.OutputOverview
+			if err != nil || code != 0 || json.Unmarshal([]byte(raw), &local) != nil || len(local.RelayPolicies) != 0 {
+				return false
+			}
+			remote := b
+			if index == b {
+				remote = a
+			}
+			found := false
+			for _, peer := range local.Peers.Details {
+				if peer.IP == f.peers[remote].address.String() && peer.ConnType == "P2P" && peer.RelayPolicy == nil {
+					found = true
+				}
+			}
+			if !found {
+				return false
+			}
+		}
+		effective, err := f.api.RelayPolicies.Effective(f.t.Context(), f.peers[a].id, f.peers[b].id)
+		return err == nil && effective.Policy == nil
+	}, convergeTimeout, time.Second, "clearing must remove both local managed scopes and restore direct delivery without restarting clients")
+}
+
 func (f *fixture) status(a, b int) (*api.RelayPolicyStatus, error) {
 	return f.api.RelayPolicies.Status(f.t.Context(), f.peers[a].id, f.peers[b].id)
 }
@@ -224,9 +272,26 @@ func (f *fixture) waitPath(a, b int, transport api.RelayPolicyStatusTransport, r
 	f.t.Helper()
 	started := time.Now()
 	var observed *api.RelayPolicyStatus
+	var previousStatus string
+	defer func() {
+		if !f.t.Failed() {
+			return
+		}
+		for _, index := range []int{a, b} {
+			code, status, err := f.peers[index].client.Exec(context.Background(), "netbird", "status", "--json")
+			f.t.Logf("endpoint %d daemon status (code=%d, error=%v): %s", index, code, err, status)
+			code, routes, err := f.peers[index].client.Exec(context.Background(), "ip", "route")
+			f.t.Logf("endpoint %d routes (code=%d, error=%v): %s", index, code, err, routes)
+		}
+	}()
 	require.Eventually(f.t, func() bool {
-		_ = f.bytes(a, b)
+		code, body, probeErr := f.peers[a].client.HTTP(f.t.Context(), "http://"+f.peers[b].address.String()+":"+strconv.Itoa(servicePort)+"/")
 		status, err := f.status(a, b)
+		encoded, _ := json.Marshal(status)
+		if string(encoded) != previousStatus {
+			f.t.Logf("pair status=%s status-error=%v HTTP-code=%d body=%q HTTP-error=%v", encoded, err, code, body, probeErr)
+			previousStatus = string(encoded)
+		}
 		if err != nil || status.Policy == nil || !status.Healthy || status.Application != api.RelayPolicyStatusApplicationApplied || status.Transport != transport || status.RelayId != relayID || len(status.Endpoints) != 2 {
 			return false
 		}
@@ -300,6 +365,45 @@ func TestForcedPairLeavesOtherDirectAndSupportsConcurrentPins(t *testing.T) {
 					}
 					require.NoError(t, json.Unmarshal([]byte(raw), &local))
 					assert.Equal(t, mode == "kernel", local.Kernel, "the test must use its requested networking mode")
+					// Reuse the established clients to cover live exclusion and failover in every form.
+					f.save(func(c *api.RelayPolicyConfiguration) {
+						for i, policy := range c.PairPolicies {
+							if policy.Id == f.pin(0, 1, true).Id {
+								c.PairPolicies[i].Constraints = constraints(true, "relay-b", "relay-a")
+								c.PairPolicies[i].Constraints.Exclude = selection("relay-a")
+								c.PairPolicies[i].Constraints.Preferences = []api.RelaySelection{selection("relay-b")}
+							}
+						}
+					})
+					f.waitPath(0, 1, api.RelayPolicyStatusTransportNativeRelay, "relay-b")
+					f.save(func(c *api.RelayPolicyConfiguration) {
+						for i, policy := range c.PairPolicies {
+							if policy.Id == f.pin(0, 1, true).Id {
+								c.PairPolicies[i].Constraints = constraints(true, "relay-a", "relay-b")
+							}
+						}
+					})
+					f.waitPath(0, 1, api.RelayPolicyStatusTransportNativeRelay, "relay-a")
+					require.NoError(t, relays["relay-a"].Stop(t.Context()))
+					t.Cleanup(func() { assert.NoError(t, relays["relay-a"].Start(context.Background())) })
+					fallback := f.waitPath(0, 1, api.RelayPolicyStatusTransportNativeRelay, "relay-b")
+					require.NoError(t, relays["relay-a"].Start(t.Context()))
+					_, err = f.api.RelayPolicies.RetryPreferred(t.Context(), api.RelayRetryRequest{PeerA: string(f.peers[0].id), PeerB: ptr(string(f.peers[1].id)), ExpectedDigest: fallback.Policy.Digest})
+					require.NoError(t, err)
+					f.waitPath(0, 1, api.RelayPolicyStatusTransportNativeRelay, "relay-a")
+					f.waitPath(0, 2, api.RelayPolicyStatusTransportNativeRelay, "relay-b")
+					f.save(func(c *api.RelayPolicyConfiguration) { c.PairPolicies = filterPairs(c.PairPolicies, f.prefix) })
+					f.waitUnmanagedDirect(0, 1)
+					f.waitUnmanagedDirect(0, 2)
+					f.save(func(c *api.RelayPolicyConfiguration) {
+						c.HomeProfiles = append(c.HomeProfiles, api.RelayHomeProfile{Id: f.prefix + "-clear-home", Name: f.prefix + "-clear-home", Enabled: true, Priority: 100, Selector: selector(f.peers[0].id), Constraints: constraints(false, "relay-a")})
+					})
+					require.Eventually(t, func() bool {
+						status, err := f.api.RelayPolicies.Status(t.Context(), f.peers[0].id, "")
+						return err == nil && status.Policy != nil && status.Healthy && status.RelayId == "relay-a"
+					}, convergeTimeout, time.Second, "home policy must apply before it is cleared")
+					f.save(func(c *api.RelayPolicyConfiguration) { c.HomeProfiles = filterHomes(c.HomeProfiles, f.prefix) })
+					f.waitUnmanagedDirect(0, 1)
 				})
 			}
 		})
@@ -400,7 +504,7 @@ func TestOfflineAndRuntimeMembershipConflictCannotLookApplied(t *testing.T) {
 	f.save(func(c *api.RelayPolicyConfiguration) {
 		c.PairPolicies = append(c.PairPolicies, f.pin(0, 1, true, "relay-a"))
 	})
-	before := f.waitPath(0, 1, api.RelayPolicyStatusTransportNativeRelay, "relay-a")
+	f.waitPath(0, 1, api.RelayPolicyStatusTransportNativeRelay, "relay-a")
 	code, out, err := f.peers[1].client.Exec(t.Context(), "netbird", "down")
 	require.NoError(t, err)
 	require.Zero(t, code, "disconnect only disposable endpoint: %s", out)
@@ -415,6 +519,11 @@ func TestOfflineAndRuntimeMembershipConflictCannotLookApplied(t *testing.T) {
 	require.NoError(t, err)
 	f.extraGroups = append(f.extraGroups, group.Id)
 	f.save(func(c *api.RelayPolicyConfiguration) {
+		for i, rule := range c.PairPolicies {
+			if rule.Id == f.pin(0, 1, true).Id {
+				c.PairPolicies[i].Source = api.RelayPeerSelector{PeerIds: []string{}, GroupIds: []string{f.groupID}}
+			}
+		}
 		rule := f.pin(0, 1, true, "relay-b")
 		rule.Id = f.prefix + "-inherited-conflict"
 		rule.Name = rule.Id
@@ -422,12 +531,20 @@ func TestOfflineAndRuntimeMembershipConflictCannotLookApplied(t *testing.T) {
 		c.PairPolicies = append(c.PairPolicies, rule)
 	})
 	_, err = f.api.Groups.Update(t.Context(), group.Id, api.PutApiGroupsGroupIdJSONRequestBody{Name: group.Name, Peers: ptr([]string{string(f.peers[0].id)})})
-	require.NoError(t, err, "membership changes can create a runtime empty intersection")
+	require.Error(t, err, "editable membership changes must reject an empty effective intersection")
+	stored, err := f.api.Groups.Get(t.Context(), group.Id)
+	require.NoError(t, err)
+	assert.Empty(t, stored.Peers, "rejected activation must leave group membership unchanged")
+	f.waitPath(0, 1, api.RelayPolicyStatusTransportNativeRelay, "relay-a")
+	// Enrollment applies setup-key groups automatically, outside the editable mutation path.
+	enrolled := newFixtureInGroups(t, server, server.API(), "userspace", 1, []string{f.groupID, group.Id})
 	require.Eventually(t, func() bool {
-		status, err := f.status(0, 1)
-		return err == nil && status.Policy != nil && status.Policy.State == api.RelayEffectivePolicyStateBlocked && !status.Healthy && status.Policy.Digest != before.Policy.Digest
-	}, convergeTimeout, time.Second, "conflicting inherited memberships must revoke the old path")
-	f.noBytes(0, 1, 5*time.Second)
+		status, err := f.api.RelayPolicies.Status(t.Context(), enrolled.peers[0].id, f.peers[1].id)
+		return err == nil && status.Policy != nil && status.Policy.State == api.RelayEffectivePolicyStateBlocked && !status.Healthy
+	}, convergeTimeout, time.Second, "automatic enrollment into conflicting groups must report a blocked runtime policy")
+	cross := &fixture{t: t, peers: []*testPeer{enrolled.peers[0], f.peers[1]}}
+	cross.noBytes(0, 1, 5*time.Second)
+	f.waitPath(0, 1, api.RelayPolicyStatusTransportNativeRelay, "relay-a")
 	// Remove the reference before the peer-group cleanup callback runs.
 	f.save(func(c *api.RelayPolicyConfiguration) {
 		pairs := c.PairPolicies[:0]
@@ -550,7 +667,8 @@ func TestReplicasObserveAtomicCatalogReplacementAndRetirement(t *testing.T) {
 	require.Eventually(t, func() bool {
 		status, err := f.status(0, 1)
 		return err == nil && status.Policy != nil && status.Policy.CatalogGeneration == retired.Generation && status.Policy.State == api.RelayEffectivePolicyStateBlocked && !status.Healthy
-	}, convergeTimeout, time.Second, "retirement must revoke the established replacement path")
+	}, convergeTimeout, time.Second, "retirement must publish a blocked desired policy")
+	require.Eventually(t, func() bool { return !f.bytes(0, 1) }, convergeTimeout, time.Second, "replicas must deliver retirement instructions and revoke the established path")
 	f.noBytes(0, 1, 5*time.Second)
 	require.NoError(t, second.Restart(t.Context()))
 	after, err := second.CurrentRelayCatalog(t.Context())
@@ -579,13 +697,24 @@ func TestOlderClientCompatibilityAndUnsupportedMembership(t *testing.T) {
 	})
 	current.waitPath(0, 1, api.RelayPolicyStatusTransportNativeRelay, "relay-a")
 	_, err = current.api.Groups.Update(t.Context(), source.Id, api.PutApiGroupsGroupIdJSONRequestBody{Name: source.Name, Peers: ptr([]string{string(current.peers[0].id), string(legacy.peers[0].id)})})
+	require.Error(t, err, "editable membership must reject an unsupported endpoint atomically")
+	stored, err := current.api.Groups.Get(t.Context(), source.Id)
 	require.NoError(t, err)
+	require.Len(t, stored.Peers, 1, "rejected membership must retain only the supporting source")
+	assert.Equal(t, string(current.peers[0].id), stored.Peers[0].Id, "the old endpoint must not enter the restricted scope")
+	// A later enrollment can acquire this setup-key group without editable activation.
+	unsupported := newFixtureInGroups(t, server, server.API(), "userspace", 1, []string{source.Id}, harness.WithClientImage(image))
 	require.Eventually(t, func() bool {
-		status, err := current.api.RelayPolicies.Status(t.Context(), legacy.peers[0].id, current.peers[1].id)
+		status, err := current.api.RelayPolicies.Status(t.Context(), unsupported.peers[0].id, current.peers[1].id)
 		return err == nil && status.Application == api.RelayPolicyStatusApplicationUnsupported && !status.Healthy
 	}, convergeTimeout, time.Second, "an older endpoint introduced into a restrictive scope must be reported unsupported")
-	code, body, fetchErr := legacy.peers[0].client.HTTP(t.Context(), "http://"+current.peers[1].address.String()+":18080/")
-	assert.False(t, fetchErr == nil && code == 200 && body == current.peers[1].marker, "mandatory unsupported restrictions cannot fall back to an old unrestricted connection")
+	// Desired unsupported status is published before the asynchronous path teardown.
+	require.Eventually(t, func() bool {
+		code, body, fetchErr := unsupported.peers[0].client.HTTP(t.Context(), "http://"+current.peers[1].address.String()+":18080/")
+		return fetchErr != nil || code != http.StatusOK || body != current.peers[1].marker
+	}, convergeTimeout, time.Second, "mandatory unsupported restrictions must revoke the old unrestricted connection")
+	cross := &fixture{t: t, peers: []*testPeer{unsupported.peers[0], current.peers[1]}}
+	cross.noBytes(0, 1, 5*time.Second)
 	current.waitPath(0, 1, api.RelayPolicyStatusTransportNativeRelay, "relay-a")
 	// Remove the cross-fixture reference before the older peer's cleanup runs.
 	current.save(func(c *api.RelayPolicyConfiguration) { c.PairPolicies = filterPairs(c.PairPolicies, current.prefix) })

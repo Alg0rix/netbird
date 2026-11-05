@@ -32,6 +32,7 @@ func run(m *testing.M) int {
 	defer cleanupServer(server)
 	if _, err = server.Bootstrap(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "bootstrap relay acceptance Management: %v\n", err)
+		fmt.Fprintln(os.Stderr, server.Logs(ctx))
 		return 1
 	}
 	signal, err = harness.StartSignal(ctx, server, "signal.local")

@@ -99,6 +99,12 @@ func StartClient(ctx context.Context, c *Combined, setupKey string, opts ...Clie
 		},
 		HostConfigModifier: func(hc *container.HostConfig) {
 			hc.CapAdd = append(hc.CapAdd, "NET_ADMIN", "SYS_ADMIN", "SYS_RESOURCE")
+			if o.mode != ClientModeNetstack {
+				hc.Devices = append(hc.Devices, container.DeviceMapping{
+					PathOnHost: "/dev/net/tun", PathInContainer: "/dev/net/tun",
+					CgroupPermissions: "rwm",
+				})
+			}
 		},
 	}
 

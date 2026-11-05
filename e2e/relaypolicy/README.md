@@ -19,7 +19,13 @@ account configuration on failures as well as success.
 
 By default, the first scenario runs kernel, userspace, and netstack clients with
 both legacy (`0`) and component (`1`) Management network-map forms. It checks
-that the daemon actually uses the requested interface mode. For a narrower run:
+that the daemon actually uses the requested interface mode. Each of these six
+fixtures also exercises live exclusion, relay outage fallback, targeted recovery,
+and CAS clearing of pair and home policies without restarting clients. Clearing
+requires both local managed scopes to disappear and direct HTTP delivery to
+resume. The remaining scenarios run userspace clients with the default negotiated
+network-map form; PostgreSQL replication, old binaries, and routed customer
+services are not repeated across the six combinations. For a narrower run:
 
 ```sh
 NB_E2E_RELAY_MODES=userspace,netstack \
@@ -42,15 +48,21 @@ preserving the same identity.
 
 | Plan scenarios | Acceptance test |
 | --- | --- |
-| 1: forced pair and unrelated direct path; 2: concurrent A/B pins | `TestForcedPairLeavesOtherDirectAndSupportsConcurrentPins` |
+| 1: forced pair and unrelated direct path; 2: concurrent A/B pins; live exclusion/fallback/retry and pair/home clearing in all six combinations | `TestForcedPairLeavesOtherDirectAndSupportsConcurrentPins` |
 | 3: different home profiles retain foreign connectivity | `TestHomeProfilesDoNotRestrictForeignPairs` |
 | 4: outage fallback and no C escape; 5: sticky/manual switch; 6: live exclusion; 12: targeted retry | `TestFailoverStickyManualExclusionAndTargetedRetry` |
-| 7: offline endpoint and runtime membership conflict | `TestOfflineAndRuntimeMembershipConflictCannotLookApplied` |
-| 7: old-client compatibility and unsupported membership | `TestOlderClientCompatibilityAndUnsupportedMembership` |
+| 7: offline endpoint, atomic editable-membership rejection, and automatic enrollment conflict | `TestOfflineAndRuntimeMembershipConflictCannotLookApplied` |
+| 7: old-client compatibility, rejected editable activation, and unsupported automatic enrollment | `TestOlderClientCompatibilityAndUnsupportedMembership` |
 | 7: catalog retirement; 11: shared PostgreSQL replicas, replacement and CAS | `TestReplicasObserveAtomicCatalogReplacementAndRetirement` |
 | 8: independent authorities sharing physical relays | `TestIndependentAuthoritiesSharePhysicalRelaysWithoutConfiguration` |
 | 9: overlapping customer database/HTTP addresses and ACL isolation | `TestOverlappingCustomerDatabaseAndHTTPRoutesStayIsolated` |
 | 10: signal interruption and stale observation rejection | `TestSignalResetCannotApplyStalePath` |
+
+Editable group changes reject incompatible activation atomically. The membership
+and older-client cases then enroll real clients using setup-key automatic groups
+to exercise runtime conflict and capability enforcement through a separate path.
+Catalog retirement waits for actual revocation after asynchronous map delivery,
+then requires sustained denied delivery from a healthy destination service.
 
 Verbose output records policy revision, digest, catalog generation, native
 attempt, and convergence duration. Negative delivery checks first verify that
@@ -59,6 +71,6 @@ endpoint reports establish agreement with desired instructions. These are
 runtime acceptance checks, not independent cryptographic proof that a relay
 enforces a pair policy.
 
-The suite was authored with test execution deferred until all implementation
-units are committed. Compilation-only verification does not execute Docker
-acceptance scenarios and must not be reported as a passing acceptance run.
+Compilation-only verification does not execute Docker acceptance scenarios and
+must not be reported as a passing acceptance run. Capture runtime results from
+the verbose command above, including explicit old-client skips and mode limits.
