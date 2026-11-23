@@ -20,5 +20,8 @@ go test -count=1 -skip 'TestServerPicker_UnavailableServers' \
   ./management/server/relaypolicy/... ./management/server/http/handlers/relay_policies/... \
   ./management/internals/shared/grpc/... ./management/internals/modules/mcpapi/... \
   ./client/internal/peer/... ./client/internal/
+# group mutations and the account snapshot read carry fork hooks
+go test -count=1 ./management/server/store/
+go test -count=1 -run 'Group|Relay' ./management/server/
 scripts/fork/surface.sh >/dev/null
 echo "OK. Review 'git diff --cached --stat', then: git commit"

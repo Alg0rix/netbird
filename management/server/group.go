@@ -18,7 +18,6 @@ import (
 	routerTypes "github.com/netbirdio/netbird/management/server/networks/routers/types"
 	"github.com/netbirdio/netbird/management/server/permissions/modules"
 	"github.com/netbirdio/netbird/management/server/permissions/operations"
-	relayadmin "github.com/netbirdio/netbird/management/server/relaypolicy/admin"
 	"github.com/netbirdio/netbird/management/server/store"
 	"github.com/netbirdio/netbird/management/server/types"
 	"github.com/netbirdio/netbird/management/server/util"
@@ -87,10 +86,7 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 	var snap *affectedpeers.Snapshot
 	change := affectedpeers.Change{ChangedGroupIDs: []string{newGroup.ID}}
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		if err := lockRelayGroupMutation(ctx, transaction, accountID); err != nil {
-			return err
-		}
+	err = am.executeGroupTransaction(ctx, accountID, func(transaction store.Store) error {
 		if err = validateNewGroup(ctx, transaction, accountID, newGroup); err != nil {
 			return err
 		}
@@ -119,9 +115,6 @@ func (am *DefaultAccountManager) CreateGroup(ctx context.Context, accountID, use
 			return err
 		}
 
-		if err := validateRelayGroupMutation(ctx, transaction, accountID); err != nil {
-			return err
-		}
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
@@ -152,10 +145,7 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 	var unchanged bool
 	change := affectedpeers.Change{ChangedGroupIDs: []string{newGroup.ID}}
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		if err := lockRelayGroupMutation(ctx, transaction, accountID); err != nil {
-			return err
-		}
+	err = am.executeGroupTransaction(ctx, accountID, func(transaction store.Store) error {
 		if err = validateNewGroup(ctx, transaction, accountID, newGroup); err != nil {
 			return err
 		}
@@ -215,9 +205,6 @@ func (am *DefaultAccountManager) UpdateGroup(ctx context.Context, accountID, use
 			return err
 		}
 
-		if err := validateRelayGroupMutation(ctx, transaction, accountID); err != nil {
-			return err
-		}
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
@@ -363,10 +350,7 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 		change := affectedpeers.Change{ChangedGroupIDs: []string{newGroup.ID}}
 		var snap *affectedpeers.Snapshot
 		var events []func()
-		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-			if err := lockRelayGroupMutation(ctx, transaction, accountID); err != nil {
-				return err
-			}
+		err = am.executeGroupTransaction(ctx, accountID, func(transaction store.Store) error {
 			if err = validateNewGroup(ctx, transaction, accountID, newGroup); err != nil {
 				return err
 			}
@@ -383,9 +367,6 @@ func (am *DefaultAccountManager) CreateGroups(ctx context.Context, accountID, us
 				return err
 			}
 
-			if err := validateRelayGroupMutation(ctx, transaction, accountID); err != nil {
-				return err
-			}
 			err = transaction.IncrementNetworkSerial(ctx, accountID)
 			if err != nil {
 				return err
@@ -461,10 +442,7 @@ func (am *DefaultAccountManager) UpdateGroups(ctx context.Context, accountID, us
 func (am *DefaultAccountManager) updateSingleGroup(ctx context.Context, accountID, userID string, newGroup *types.Group, change affectedpeers.Change) ([]func(), *affectedpeers.Snapshot, affectedpeers.Change, error) {
 	var events []func()
 	var snap *affectedpeers.Snapshot
-	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		if err := lockRelayGroupMutation(ctx, transaction, accountID); err != nil {
-			return err
-		}
+	err := am.executeGroupTransaction(ctx, accountID, func(transaction store.Store) error {
 		if err := validateNewGroup(ctx, transaction, accountID, newGroup); err != nil {
 			return err
 		}
@@ -505,9 +483,6 @@ func (am *DefaultAccountManager) updateSingleGroup(ctx context.Context, accountI
 		}
 		change.ChangedPeerIDs = ipv6Changed
 
-		if err := validateRelayGroupMutation(ctx, transaction, accountID); err != nil {
-			return err
-		}
 		if err := transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
 			return err
 		}
@@ -626,10 +601,7 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 		return err
 	}
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		if err := lockRelayGroupMutation(ctx, transaction, accountID); err != nil {
-			return err
-		}
+	err = am.executeGroupTransaction(ctx, accountID, func(transaction store.Store) error {
 		deletedGroups, allErrors = collectDeletableGroups(ctx, transaction, accountID, userID, groupIDs, extraSettings.FlowGroups)
 		for _, group := range deletedGroups {
 			groupIDsToDelete = append(groupIDsToDelete, group.ID)
@@ -665,9 +637,6 @@ func (am *DefaultAccountManager) DeleteGroups(ctx context.Context, accountID, us
 			}
 		}
 
-		if err := validateRelayGroupMutation(ctx, transaction, accountID); err != nil {
-			return err
-		}
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
@@ -716,10 +685,7 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 	// intra-group policy the opposite side is the group, so its members still refresh.
 	change := affectedpeers.Change{OutputPeerIDs: []string{peerID}, LinkGroups: []string{groupID}}
 
-	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		if err := lockRelayGroupMutation(ctx, transaction, accountID); err != nil {
-			return err
-		}
+	err := am.executeGroupTransaction(ctx, accountID, func(transaction store.Store) error {
 		if err := syncGroupMembership(ctx, transaction, accountID, groupID, []string{peerID}, nil); err != nil {
 			return err
 		}
@@ -736,9 +702,6 @@ func (am *DefaultAccountManager) GroupAddPeer(ctx context.Context, accountID, gr
 			return err
 		}
 
-		if err := validateRelayGroupMutation(ctx, transaction, accountID); err != nil {
-			return err
-		}
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
@@ -757,10 +720,7 @@ func (am *DefaultAccountManager) GroupAddResource(ctx context.Context, accountID
 	var err error
 	change := affectedpeers.Change{ChangedGroupIDs: []string{groupID}}
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		if err := lockRelayGroupMutation(ctx, transaction, accountID); err != nil {
-			return err
-		}
+	err = am.executeGroupTransaction(ctx, accountID, func(transaction store.Store) error {
 		group, err = transaction.GetGroupByID(context.Background(), store.LockingStrengthUpdate, accountID, groupID)
 		if err != nil {
 			return err
@@ -778,9 +738,6 @@ func (am *DefaultAccountManager) GroupAddResource(ctx context.Context, accountID
 			return err
 		}
 
-		if err := validateRelayGroupMutation(ctx, transaction, accountID); err != nil {
-			return err
-		}
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
@@ -801,10 +758,7 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 	// opposite-side walk, and OutputPeerIDs refreshes the removed peer itself.
 	change := affectedpeers.Change{OutputPeerIDs: []string{peerID}, LinkGroups: []string{groupID}}
 
-	err := am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		if err := lockRelayGroupMutation(ctx, transaction, accountID); err != nil {
-			return err
-		}
+	err := am.executeGroupTransaction(ctx, accountID, func(transaction store.Store) error {
 		if err := transaction.RemovePeerFromGroup(ctx, peerID, groupID); err != nil {
 			return err
 		}
@@ -821,9 +775,6 @@ func (am *DefaultAccountManager) GroupDeletePeer(ctx context.Context, accountID,
 			return err
 		}
 
-		if err := validateRelayGroupMutation(ctx, transaction, accountID); err != nil {
-			return err
-		}
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
@@ -842,10 +793,7 @@ func (am *DefaultAccountManager) GroupDeleteResource(ctx context.Context, accoun
 	var err error
 	change := affectedpeers.Change{ChangedGroupIDs: []string{groupID}}
 
-	err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-		if err := lockRelayGroupMutation(ctx, transaction, accountID); err != nil {
-			return err
-		}
+	err = am.executeGroupTransaction(ctx, accountID, func(transaction store.Store) error {
 		group, err = transaction.GetGroupByID(context.Background(), store.LockingStrengthUpdate, accountID, groupID)
 		if err != nil {
 			return err
@@ -865,9 +813,6 @@ func (am *DefaultAccountManager) GroupDeleteResource(ctx context.Context, accoun
 			return err
 		}
 
-		if err := validateRelayGroupMutation(ctx, transaction, accountID); err != nil {
-			return err
-		}
 		return transaction.IncrementNetworkSerial(ctx, accountID)
 	})
 	if err != nil {
@@ -1260,31 +1205,4 @@ func anyInSet(ids []string, set map[string]struct{}) bool {
 		}
 	}
 	return false
-}
-
-func lockRelayGroupMutation(ctx context.Context, transaction store.Store, accountID string) error {
-	repository, ok := transaction.(store.RelayPolicyStore)
-	if !ok {
-		return nil
-	}
-	return repository.LockRelayConfiguration(ctx, types.AccountID(accountID))
-}
-
-func validateRelayGroupMutation(ctx context.Context, transaction store.Store, accountID string) error {
-	repository, ok := transaction.(store.RelayPolicyStore)
-	if !ok {
-		return nil
-	}
-	snapshot, err := repository.GetRelaySnapshot(ctx, types.AccountID(accountID))
-	if err != nil {
-		return err
-	}
-	if len(snapshot.Profiles) == 0 && len(snapshot.Policies) == 0 {
-		return nil
-	}
-	account, err := transaction.GetAccount(ctx, accountID)
-	if err != nil {
-		return err
-	}
-	return relayadmin.ValidateAccount(ctx, account)
 }

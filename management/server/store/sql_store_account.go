@@ -328,20 +328,11 @@ func (s *SqlStore) GetAccountMeta(ctx context.Context, lockStrength LockingStren
 	return &accountMeta, nil
 }
 
-func (s *SqlStore) GetAccount(ctx context.Context, accountID string) (*types.Account, error) {
-	for range 3 {
-		var account *types.Account
-		var err error
-		if s.pgxPool() != nil {
-			account, err = s.getAccountPgx(ctx, accountID)
-		} else {
-			account, err = s.getAccountGorm(ctx, accountID)
-		}
-		if !errors.Is(err, errRelayAccountSnapshotChanged) {
-			return account, err
-		}
+func (s *SqlStore) getAccountOnce(ctx context.Context, accountID string) (*types.Account, error) { // fork: GetAccount retries, see sql_store_relay_account.go
+	if s.pgxPool() != nil {
+		return s.getAccountPgx(ctx, accountID)
 	}
-	return nil, errRelayAccountSnapshotChanged
+	return s.getAccountGorm(ctx, accountID)
 }
 
 func (s *SqlStore) getAccountGorm(ctx context.Context, accountID string) (*types.Account, error) {
@@ -805,29 +796,6 @@ func (s *SqlStore) getAccountPgx(ctx context.Context, accountID string) (*types.
 		return nil, err
 	}
 	return account, nil
-}
-
-var errRelayAccountSnapshotChanged = errors.New("account serial changed while reading relay policy snapshot")
-
-func (s *SqlStore) attachRelayAccountSnapshot(ctx context.Context, account *types.Account, native bool) error {
-	snapshot, err := s.getRelaySnapshotForAccount(ctx, types.AccountID(account.Id), native)
-	if err != nil {
-		return err
-	}
-	if account.Network != nil && account.Network.Serial != snapshot.NetworkSerial {
-		return errRelayAccountSnapshotChanged
-	}
-	account.RelayGroups, account.RelayHomeProfiles, account.RelayPairPolicies = snapshot.Groups, snapshot.Profiles, snapshot.Policies
-	account.RelayReselections = snapshot.Reselections
-	account.RelayState = nil
-	if snapshot.Revision != 0 {
-		account.RelayState = &types.RelayAccountState{AccountID: types.AccountID(account.Id), Revision: snapshot.Revision}
-	}
-	account.RelayCatalog = nil
-	if snapshot.Catalog.Generation != 0 {
-		account.RelayCatalog = &snapshot.Catalog
-	}
-	return nil
 }
 
 func (s *SqlStore) getAccount(ctx context.Context, accountID string) (*types.Account, error) {

@@ -8,7 +8,6 @@ import (
 	"runtime"
 	"slices"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/netbirdio/ice/v4"
@@ -104,7 +103,7 @@ type ConnConfig struct {
 }
 
 type Conn struct {
-	policyRevision     atomic.Uint64
+	connPolicy         // fork: relay policy revision, see conn_relay_policy.go
 	Log                *log.Entry
 	mu                 sync.Mutex
 	ctx                context.Context
@@ -1222,42 +1221,6 @@ func metricsConnType(priority conntype.ConnPriority) metrics.ConnectionType {
 	default:
 		return metrics.ConnectionTypeUnknown
 	}
-}
-
-// RelayPolicy returns a detached snapshot of the effective pair instructions.
-func (conn *Conn) RelayPolicy() *rp.ResolvedRelayPolicy {
-	p := conn.config.RelayPolicy.Copy()
-	if p != nil {
-		if revision := conn.policyRevision.Load(); revision != 0 {
-			p.Revision = revision
-		}
-	}
-	return p
-}
-
-// UpdateRelayPolicyRevision refreshes reporting metadata without changing transport.
-func (conn *Conn) UpdateRelayPolicyRevision(revision uint64) {
-	conn.policyRevision.Store(revision)
-}
-
-// RelayPolicySelection returns the acknowledged native relay and attempt sequence.
-func (conn *Conn) RelayPolicySelection() (rp.RelayID, uint64) {
-	conn.mu.Lock()
-	defer conn.mu.Unlock()
-	relayWorker := conn.workerRelay
-	if relayWorker == nil || relayWorker.managed == nil || conn.currentConnPriority != conntype.Relay || conn.statusRelay.Get() != worker.StatusConnected {
-		return "", 0
-	}
-	m := relayWorker.managed
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	relayWorker.relayLock.Lock()
-	selectedConn := relayWorker.relayedConn
-	relayWorker.relayLock.Unlock()
-	if m.stopped || conn.relayedConnRef == nil || selectedConn != conn.relayedConnRef || conn.relayedConnRef.Context() == nil || conn.relayedConnRef.Context().Err() != nil {
-		return "", 0
-	}
-	return m.selected, m.selectedSequence
 }
 
 // p2pPathLost reports whether a P2P path cannot have survived a network
