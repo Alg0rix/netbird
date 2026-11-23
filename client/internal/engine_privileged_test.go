@@ -74,7 +74,7 @@ func TestEngine_SSH(t *testing.T) {
 	ctx, cancel := context.WithCancel(CtxInitState(context.Background()))
 	defer cancel()
 
-	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU, relayClient.WithRelayPolicy())
 	engine := NewEngine(
 		ctx, cancel,
 		&EngineConfig{
@@ -204,7 +204,7 @@ func TestEngine_Sync(t *testing.T) {
 		}
 		return nil
 	}
-	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU, relayClient.WithRelayPolicy())
 	engine := NewEngine(ctx, cancel, &EngineConfig{
 		WgIfaceName:    "utun103",
 		WgAddr:         wgaddr.MustParseWGAddress("100.64.0.1/24"),
@@ -423,7 +423,7 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 		MTU:            iface.DefaultMTU,
 	}
 
-	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU)
+	relayMgr := relayClient.NewManager(ctx, nil, key.PublicKey().String(), iface.DefaultMTU, relayClient.WithRelayPolicy())
 	e, err := NewEngine(ctx, cancel, conf, EngineServices{
 		SignalClient:   signalClient,
 		MgmClient:      mgmtClient,

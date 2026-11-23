@@ -57,7 +57,7 @@ func TestMalformedComponentPolicyRevokesExistingManagedPaths(t *testing.T) {
 				require.Equal(t, key, removed, "only managed or newly restricted peers may lose their interface path")
 				return existingPath.Close()
 			}}
-			engine := &Engine{ctx: ctx, config: &EngineConfig{}, peerStore: connections, statusRecorder: status, relayManager: relayclient.NewManager(ctx, nil, "local", 1280)}
+			engine := &Engine{ctx: ctx, config: &EngineConfig{}, peerStore: connections, statusRecorder: status, relayManager: relayclient.NewManager(ctx, nil, "local", 1280, relayclient.WithRelayPolicy())}
 			engine.connMgr = NewConnMgr(engine.config, status, connections, hardware)
 			envelope := &mgmProto.NetworkMapEnvelope{Payload: &mgmProto.NetworkMapEnvelope_Full{Full: &mgmProto.NetworkMapComponentsFull{
 				Peers:             []*mgmProto.PeerCompact{{WgPubKey: rawKey}},

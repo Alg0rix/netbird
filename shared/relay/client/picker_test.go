@@ -21,7 +21,7 @@ func TestServerPicker_UnavailableServers(t *testing.T) {
 	}
 	sp.ServerURLs.Store([]string{"rel://dummy1", "rel://dummy2"})
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout+time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout+1)
 	defer cancel()
 
 	go func() {
@@ -108,21 +108,4 @@ func TestServerPicker_ClosesSessionNobodyTook(t *testing.T) {
 		return proxy.liveConns() == 0
 	}, lifecycleTestTimeout, 5*time.Millisecond, "a session that connects after the pick gave up must be closed")
 	assert.Equal(t, 1, proxy.acceptedConns(), "the candidate must have dialed once")
-}
-
-func TestServerPicker_PickServerUnavailable(t *testing.T) {
-	timeout := 5 * time.Second
-	sp := ServerPicker{
-		TokenStore:        nil,
-		PeerID:            "test",
-		ConnectionTimeout: timeout,
-	}
-	sp.ServerURLs.Store([]string{"rel://dummy1", "rel://dummy2"})
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout+1)
-	defer cancel()
-
-	_, err := sp.PickServer(ctx)
-	require.Error(t, err, "unavailable servers must return a connection failure")
-	require.NoError(t, ctx.Err(), "the picker must finish within its own timeout before the caller deadline")
 }

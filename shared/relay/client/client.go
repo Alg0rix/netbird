@@ -184,9 +184,7 @@ type Client struct {
 	mu        sync.Mutex // protect session
 	connectMu sync.Mutex
 
-	// onDisconnect is called once after a session ends. Callers clear it before an intentional close.
-	onDisconnect func(string)
-	listenerMu   sync.Mutex
+	clientPolicy // fork: disconnect listener, see client_policy.go
 
 	mtu uint16
 
@@ -296,17 +294,6 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) ConnectSession(ctx context.Context) (*session, error) {
-	return c.connectSessionWithLifetime(ctx, ctx)
-}
-
-// connectWithLifetime dials with dialCtx and keeps the session alive until lifetime ends.
-// A pooled client must outlive the bounded context of the attempt that created it.
-func (c *Client) connectWithLifetime(dialCtx, lifetime context.Context) error {
-	_, err := c.connectSessionWithLifetime(dialCtx, lifetime)
-	return err
-}
-
-func (c *Client) connectSessionWithLifetime(dialCtx, lifetime context.Context) (*session, error) {
 	c.log.Infof("connecting to relay server")
 	c.connectMu.Lock()
 	defer c.connectMu.Unlock()
@@ -315,7 +302,7 @@ func (c *Client) connectSessionWithLifetime(dialCtx, lifetime context.Context) (
 		return s, nil
 	}
 
-	s, err := c.connect(dialCtx)
+	s, err := c.connect(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -326,28 +313,10 @@ func (c *Client) connectSessionWithLifetime(dialCtx, lifetime context.Context) (
 
 	s.log.Infof("relay connection established, server IP: %s", connectedIP(s.conn))
 
-	go s.ListenForStopEvents(lifetime)
+	go s.ListenForStopEvents(ctx)
 	go s.ReadLoop()
-	go c.notifyDisconnected(s)
 
 	return s, nil
-}
-
-// SetOnDisconnectListener registers fn, called with the connection URL after a session ends.
-func (c *Client) SetOnDisconnectListener(fn func(string)) {
-	c.listenerMu.Lock()
-	defer c.listenerMu.Unlock()
-	c.onDisconnect = fn
-}
-
-func (c *Client) notifyDisconnected(s *session) {
-	s.Wait(context.Background())
-	c.listenerMu.Lock()
-	fn := c.onDisconnect
-	c.listenerMu.Unlock()
-	if fn != nil {
-		fn(c.connectionURL)
-	}
 }
 
 func (c *Client) DetachSession(s *session) {

@@ -32,11 +32,9 @@ Read this file before you merge upstream into this fork. Follow the steps in ord
 
 | File | How to resolve |
 | --- | --- |
-| `shared/relay/client/client.go`, `guard.go` | Take the upstream file. Re-add the fork additions in `client.go`: `connectWithLifetime`, `connectSessionWithLifetime`, `SetOnDisconnectListener`, `notifyDisconnected`, and the `onDisconnect` and `listenerMu` fields. |
-| `shared/relay/client/picker.go` | Take the upstream file. Re-add `acquire` and `release`, `PickServer`, `pickURLs`, `drainResults`, `releaseClient`, and the `pickResult` type. Set `c.authKey = sp.AuthKey` where the picker creates a client. |
-| `shared/relay/client/manager.go` | Keep the fork file. Copy new upstream options and fields that are not session code (for example `WithAuthKey`, `UpdateAuthToken`). Do not copy `superviseHome`, `adoptHome`, or track sessions. |
-| `shared/relay/client/registration.go` | Set `c.authKey = m.authKey` on every client the fork creates. |
-| `shared/relay/client/*_test.go` | Keep upstream helpers. Drop tests that call upstream-only manager internals. Keep tests for behavior both designs share. |
+| `shared/relay/client/manager.go`, `picker.go`, `client.go`, `guard.go` | Take the upstream file as it is. Then re-add only the hook lines marked `// fork`: the embedded `policyState`, `trackPolicy`, `pickerPolicy`, and `clientPolicy`; the `m.initPolicy()` call in `NewManager`; and the `if m.policyEnabled` calls at the top of `Serve`, `OpenConn`, `RelayStates`, and `cleanUpUnusedRelays`. `guard.go` has no fork lines. |
+| `shared/relay/client/client_policy.go` | `connectSessionWithLifetime` copies `Client.ConnectSession`. When upstream changes `ConnectSession`, apply the same change here. |
+| `shared/relay/client/*_test.go` | Take the upstream test files as they are. Fork tests are in `manager_policy_test.go` and `registration_test.go`. They reuse the helpers of `manager_lifecycle_test.go`. |
 | `client/internal/peer/conn.go`, `management/internals/shared/grpc/server.go` | Keep both sides. These are usually additions in the same place. |
 | `combined/cmd/config.go` | Take upstream imports. Add the `rp` import back. |
 | `management/server/activity/codes.go` | Upstream owns the low numbers. Fork codes stay at 9000 and above. |
@@ -44,9 +42,17 @@ Read this file before you merge upstream into this fork. Follow the steps in ord
 | `*.pb.go`, `*.gen.go` | Take either side. Run `scripts/fork/regen.sh` afterward. |
 | `client/internal/relay_policy*.go`, `peer/relay_policy*.go` | If an upstream API changed, adapt the call. Do not change the policy rules. |
 
+## Relay policy mode
+
+The fork logic is in new files of `shared/relay/client`: `policy_state.go`, `manager_policy.go`, `picker_policy.go`, `client_policy.go`, `registration.go`, `home_policy.go`, `home_status.go`.
+The manager runs it only when it is created with `WithRelayPolicy()`. The client engine does this in `client/internal/connect.go`. Without the option the manager is the upstream manager.
+A policy call on a plain manager returns an error. If you see "relay policy mode is off", the manager was created without the option.
+
 ## Known test failures that are not caused by the fork
 
-These fail on plain upstream `main`. Ignore them.
+These fail on plain upstream `main`, or in a slow network. Ignore them.
+
+- `shared/relay/client`: `TestServerPicker_UnavailableServers` fails when the resolver needs many seconds for an unknown host name.
 
 - `management/internals/modules/agentnetwork`: tests about "private capabilities".
 - `management/server`: `TestAgentNetwork_*` with the same message.

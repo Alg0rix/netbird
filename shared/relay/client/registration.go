@@ -48,6 +48,9 @@ func (r *Registration) Release() {
 // SetCatalog adds approved identity mappings before home or pair dialing begins.
 // Existing live aliases cannot be reassigned to another concrete instance.
 func (m *Manager) SetCatalog(entries []rp.RelayCatalogEntry) error {
+	if err := m.requirePolicyMode(); err != nil {
+		return err
+	}
 	catalog, err := rp.ValidateCatalog(rp.RelayCatalog{Entries: entries})
 	if err != nil {
 		return err
@@ -335,6 +338,9 @@ func (m *Manager) releasePickerClient(c *Client) {
 // instructions. Updates merge within a generation; a new generation replaces mappings.
 // Existing leases may drain, while old offers cannot restore replaced mappings.
 func (m *Manager) SetCatalogGeneration(generation uint64, entries []rp.RelayCatalogEntry) error {
+	if err := m.requirePolicyMode(); err != nil {
+		return err
+	}
 	canonical, err := rp.ValidateCatalog(rp.RelayCatalog{Generation: generation, Entries: entries})
 	if err != nil {
 		return err

@@ -38,10 +38,10 @@ func TestRegistrationSharedAcrossHomeAndPairOwners(t *testing.T) {
 	entry := registrationTestRelay(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	t.Cleanup(cancel)
-	alice := NewManager(ctx, []string{string(entry.Endpoint)}, "registration-alice", 1280)
+	alice := NewManager(ctx, []string{string(entry.Endpoint)}, "registration-alice", 1280, WithRelayPolicy())
 	require.NoError(t, alice.SetCatalogGeneration(1, []rp.RelayCatalogEntry{entry}))
 	require.NoError(t, alice.Serve())
-	bob := NewManager(ctx, nil, "registration-bob", 1280)
+	bob := NewManager(ctx, nil, "registration-bob", 1280, WithRelayPolicy())
 	bobRegistration, err := bob.AcquireRegistration(ctx, entry)
 	require.NoError(t, err)
 	t.Cleanup(bobRegistration.Release)
@@ -84,7 +84,7 @@ func TestRegistrationRejectsUnapprovedInstanceAndStaleGeneration(t *testing.T) {
 	entry := registrationTestRelay(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	t.Cleanup(cancel)
-	manager := NewManager(ctx, nil, "registration-validation", 1280)
+	manager := NewManager(ctx, nil, "registration-validation", 1280, WithRelayPolicy())
 	mismatch := entry
 	mismatch.InstanceEndpoint = "rel://unapproved.example:1234"
 	_, err := manager.AcquireRegistration(ctx, mismatch)
@@ -107,7 +107,7 @@ func TestRegistrationHomeMetadataUpdateRetainsHealthyFallback(t *testing.T) {
 	entry := registrationTestRelay(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	t.Cleanup(cancel)
-	manager := NewManager(ctx, nil, "registration-home-update", 1280)
+	manager := NewManager(ctx, nil, "registration-home-update", 1280, WithRelayPolicy())
 	policy := &rp.ResolvedRelayPolicy{State: rp.RelayPolicyReady, Digest: "same-instructions", CatalogGeneration: 1, Tiers: [][]rp.RelayCatalogEntry{{entry}}}
 	require.NoError(t, manager.SetHomePolicy(policy))
 	require.NoError(t, manager.Serve())
@@ -126,7 +126,7 @@ func TestRegistrationPreservesDecodedEmptyAliases(t *testing.T) {
 	entry.Aliases = []rp.RelayEndpoint{}
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	t.Cleanup(cancel)
-	manager := NewManager(ctx, nil, "registration-decoded-aliases", 1280)
+	manager := NewManager(ctx, nil, "registration-decoded-aliases", 1280, WithRelayPolicy())
 	require.NoError(t, manager.SetCatalogGeneration(1, []rp.RelayCatalogEntry{entry}))
 	registration, err := manager.AcquireRegistration(ctx, entry)
 	require.NoError(t, err, "a decoded approved selection must retain its identity through registration acquisition")

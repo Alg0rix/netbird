@@ -478,7 +478,7 @@ func (c *ConnectClient) run(mobileDependency MobileDependency, runningChan chan 
 		}
 
 		relayManager := relayClient.NewManager(engineCtx, relayURLs, myPrivateKey.PublicKey().String(), engineConfig.MTU,
-			relayClient.WithNetEvents(c.netMgr), relayClient.WithAuthKey(c.authKey()))
+			relayClient.WithNetEvents(c.netMgr), relayClient.WithAuthKey(c.authKey()), relayClient.WithRelayPolicy())
 		c.statusRecorder.SetRelayMgr(relayManager)
 		if len(relayURLs) > 0 {
 			if authToken := loginResp.GetNetbirdConfig().GetAuthToken(); len(authToken) > 0 {

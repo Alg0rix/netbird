@@ -13,6 +13,9 @@ import (
 // SetHomePolicy replaces the immutable home registration instructions. Pair
 // registrations retain their independent references during home reselection.
 func (m *Manager) SetHomePolicy(policy *rp.ResolvedRelayPolicy) error {
+	if err := m.requirePolicyMode(); err != nil {
+		return err
+	}
 	copyPolicy := policy.Copy()
 	if copyPolicy != nil {
 		var entries []rp.RelayCatalogEntry

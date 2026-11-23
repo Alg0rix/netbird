@@ -178,7 +178,105 @@ func (p *relayProxy) acceptedConns() int {
 	return p.accepted
 }
 
-func TestHomeRecoversAfterSessionDrop(t *testing.T) {
+func TestHomeSessionDroppedBeforeAdoption(t *testing.T) {
+	tests := []struct {
+		name    string
+		acquire func(t *testing.T, m *Manager) *session
+	}{
+		{
+			name: "initial pick",
+			acquire: func(t *testing.T, m *Manager) *session {
+				s, err := m.serverPicker.Pick(m.ctx)
+				require.NoError(t, err, "pick the home server")
+				return s
+			},
+		},
+		{
+			name: "quick reconnect",
+			acquire: func(t *testing.T, m *Manager) *session {
+				first, err := m.serverPicker.Pick(m.ctx)
+				require.NoError(t, err, "pick the home server")
+				dropSession(t, first)
+
+				s := m.reconnectGuard.Reconnect(m.ctx, first.client)
+				require.NotNil(t, s, "the guard must reconnect")
+				require.Same(t, first.client, s.client, "a quick reconnect must reuse the client")
+				return s
+			},
+		},
+		{
+			name: "server picked by the guard",
+			acquire: func(t *testing.T, m *Manager) *session {
+				s := m.reconnectGuard.Reconnect(m.ctx, nil)
+				require.NotNil(t, s, "the guard must pick a server")
+				return s
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
+
+			relay := startRelayServer(t)
+			bob := serveManager(t, ctx, relay, "bob")
+			alice := NewManager(ctx, toURL(relay), "alice", iface.DefaultMTU, WithNetEvents(newStubNetEvents()))
+
+			reconnected := make(chan struct{}, 1)
+			alice.SetOnReconnectedListener(func() {
+				select {
+				case reconnected <- struct{}{}:
+				default:
+				}
+			})
+
+			s := tt.acquire(t, alice)
+			dropSession(t, s)
+
+			// Serve hands the picked session over the same way: adopt, then supervise.
+			alice.adoptHome(s)
+			go alice.superviseHome(s)
+
+			require.NoError(t, waitForReady(ctx, alice, lifecycleTestTimeout), "the manager must recover a home session that ended before it was adopted")
+			assert.Same(t, s.client, homeSession(t, alice).client, "the recovery must reuse the client through a quick reconnect")
+
+			select {
+			case <-reconnected:
+			case <-time.After(lifecycleTestTimeout):
+				t.Fatal("the reconnect listener was not called after the recovery")
+			}
+
+			relayAddr, _, err := alice.RelayInstanceAddress()
+			require.NoError(t, err, "home relay address after the recovery")
+			assertRelayedTraffic(t, ctx, alice, bob, relayAddr)
+		})
+	}
+}
+
+func TestHomeSessionDroppedBetweenPublishAndObserve(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	relay := startRelayServer(t)
+	bob := serveManager(t, ctx, relay, "bob")
+	alice := NewManager(ctx, toURL(relay), "alice", iface.DefaultMTU, WithNetEvents(newStubNetEvents()))
+
+	s, err := alice.serverPicker.Pick(ctx)
+	require.NoError(t, err, "pick the home server")
+
+	alice.adoptHome(s)
+	dropSession(t, s)
+	go alice.superviseHome(s)
+
+	require.NoError(t, waitForReady(ctx, alice, lifecycleTestTimeout), "the manager must recover a home session that ended before the supervisor observed it")
+
+	relayAddr, _, err := alice.RelayInstanceAddress()
+	require.NoError(t, err, "home relay address after the recovery")
+	assertRelayedTraffic(t, ctx, alice, bob, relayAddr)
+}
+
+func TestHomeSessionDroppedWhileAdoptionIsBlocked(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
@@ -187,10 +285,25 @@ func TestHomeRecoversAfterSessionDrop(t *testing.T) {
 	alice := serveManager(t, ctx, relay, "alice", WithNetEvents(newStubNetEvents()))
 
 	first := homeSession(t, alice)
+	home := first.client
+
+	// The supervisor publishes a session under relayClientMu, so holding the lock
+	// keeps the reconnected session unadopted until it has ended.
+	alice.relayClientMu.RLock()
 	dropSession(t, first)
 
-	require.NoError(t, waitForReady(ctx, alice, lifecycleTestTimeout), "the manager must recover a dropped home session")
-	nextHomeSession(t, alice, first)
+	var second *session
+	reconnected := assert.Eventually(t, func() bool {
+		second = home.CurrentSession()
+		return second != nil
+	}, lifecycleTestTimeout, 5*time.Millisecond, "the quick reconnect did not establish a new session")
+	if reconnected {
+		dropSession(t, second)
+	}
+	alice.relayClientMu.RUnlock()
+	require.True(t, reconnected)
+
+	require.NoError(t, waitForReady(ctx, alice, lifecycleTestTimeout), "the manager must recover a reconnected session that ended before it was adopted")
 
 	relayAddr, _, err := alice.RelayInstanceAddress()
 	require.NoError(t, err, "home relay address after the recovery")
@@ -204,15 +317,22 @@ func TestHomeRecoversOnNewServer(t *testing.T) {
 	oldRelay := startRelayServer(t)
 	newRelay := startRelayServer(t)
 	bob := serveManager(t, ctx, newRelay, "bob")
-	alice := serveManager(t, ctx, oldRelay, "alice", WithNetEvents(newStubNetEvents()))
+	alice := NewManager(ctx, toURL(oldRelay), "alice", iface.DefaultMTU, WithNetEvents(newStubNetEvents()))
 
-	first := homeSession(t, alice)
-	// The old server is no longer a valid home, so the manager has to pick again.
+	s, err := alice.serverPicker.Pick(ctx)
+	require.NoError(t, err, "pick the home server")
+	dropSession(t, s)
+
+	// The old server is no longer a valid home, so the guard cannot reconnect
+	// the client it holds and has to pick a server again.
 	alice.UpdateServerURLs(toURL(newRelay))
-	dropSession(t, first)
+
+	alice.adoptHome(s)
+	go alice.superviseHome(s)
 
 	require.NoError(t, waitForReady(ctx, alice, lifecycleTestTimeout), "the manager must recover on a newly picked server")
-	recovered := nextHomeSession(t, alice, first)
+	recovered := homeSession(t, alice)
+	assert.NotSame(t, s.client, recovered.client, "the recovery must go through a newly picked client")
 	assert.Equal(t, toURL(newRelay)[0], recovered.client.connectionURL, "the recovered home must be the new server")
 
 	relayAddr, _, err := alice.RelayInstanceAddress()
@@ -220,11 +340,109 @@ func TestHomeRecoversOnNewServer(t *testing.T) {
 	assertRelayedTraffic(t, ctx, alice, bob, relayAddr)
 }
 
+func TestHomeSupervisorIsSerialAndStopsOnCancel(t *testing.T) {
+	tests := []struct {
+		name string
+		// stop cancels the manager and returns once every session it knows of has ended.
+		stop func(t *testing.T, events *stubNetEvents, s *session, cancel context.CancelFunc)
+	}{
+		{
+			name: "cancelled while connected",
+			stop: func(t *testing.T, _ *stubNetEvents, s *session, cancel context.CancelFunc) {
+				cancel()
+				waitCtx, stopWaiting := context.WithTimeout(context.Background(), lifecycleTestTimeout)
+				defer stopWaiting()
+				require.True(t, s.Wait(waitCtx), "the home session did not end after the manager was cancelled")
+			},
+		},
+		{
+			name: "cancelled while reconnecting",
+			stop: func(t *testing.T, events *stubNetEvents, s *session, cancel context.CancelFunc) {
+				// Park the next reconnect inside the guard, before it dials.
+				events.holdQuickReconnect()
+				dropSession(t, s)
+				select {
+				case <-events.entered:
+				case <-time.After(lifecycleTestTimeout):
+					t.Fatal("the guard did not start a reconnect after the session ended")
+				}
+				cancel()
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// The proxy forwards TCP only, so keep the relay client off QUIC.
+			t.Setenv(EnvRelayTransport, string(TransportModeWS))
+
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
+
+			relay := startRelayServer(t)
+			proxy := startRelayProxy(t, relay.Address)
+			events := newStubNetEvents()
+			m := NewManager(ctx, []string{"rel://" + proxy.addr}, "alice", iface.DefaultMTU, WithNetEvents(events))
+
+			s, err := m.serverPicker.Pick(ctx)
+			require.NoError(t, err, "pick the home server")
+			m.adoptHome(s)
+
+			supervisorDone := make(chan struct{})
+			go func() {
+				defer close(supervisorDone)
+				m.superviseHome(s)
+			}()
+
+			const drops = 3
+			for i := 1; i <= drops; i++ {
+				dropSession(t, s)
+				s = nextHomeSession(t, m, s)
+
+				assert.EqualValues(t, i+1, events.dials.Load(), "every recovery must dial exactly once")
+				require.Eventually(t, func() bool {
+					return proxy.liveConns() == 1
+				}, lifecycleTestTimeout, 5*time.Millisecond, "exactly one home connection must stay open after a recovery")
+			}
+
+			tt.stop(t, events, s, cancel)
+
+			select {
+			case <-supervisorDone:
+			case <-time.After(lifecycleTestTimeout):
+				t.Fatal("the home supervisor did not stop after the manager was cancelled")
+			}
+
+			assert.EqualValues(t, drops+1, events.dials.Load(), "no connection attempt may start after the manager is cancelled")
+			assert.Equal(t, drops+1, proxy.acceptedConns(), "the relay must have seen one connection per session")
+			require.Eventually(t, func() bool {
+				return proxy.liveConns() == 0
+			}, lifecycleTestTimeout, 5*time.Millisecond, "no home connection may outlive the manager")
+		})
+	}
+}
+
 func TestForeignSessionEndRemovesTrack(t *testing.T) {
 	tests := []struct {
 		name string
 		drop func(t *testing.T, ctx context.Context, alice *Manager, bobsRelay string)
 	}{
+		{
+			name: "session ends before the track is published",
+			drop: func(t *testing.T, ctx context.Context, alice *Manager, bobsRelay string) {
+				rt := NewRelayTrack()
+				alice.relayClientsMutex.Lock()
+				alice.relayClients[bobsRelay] = rt
+				alice.relayClientsMutex.Unlock()
+
+				foreign := NewClient(bobsRelay, alice.tokenStore, alice.peerID, alice.mtu)
+				s, err := foreign.ConnectSession(ctx)
+				require.NoError(t, err, "connect to the foreign relay")
+				dropSession(t, s)
+
+				alice.publishForeignSession(bobsRelay, rt, s)
+			},
+		},
 		{
 			name: "session ends after the track is published",
 			drop: func(t *testing.T, ctx context.Context, alice *Manager, bobsRelay string) {
@@ -286,6 +504,7 @@ func TestOpenConnReplacesEndedForeignTrack(t *testing.T) {
 	// session ended but whose eviction has not run yet.
 	stale := NewRelayTrack()
 	stale.relayClient = foreign
+	stale.session = s
 	close(stale.ready)
 	alice.relayClientsMutex.Lock()
 	alice.relayClients[bobsRelay] = stale
