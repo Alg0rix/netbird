@@ -1,0 +1,44 @@
+# Weekly check that the fork still merges cleanly with upstream. It never changes the branch.
+# On a conflict it opens or updates one issue, so a conflict shows up within days.
+name: Fork upstream check
+
+on:
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check upstream release and upstream main
+        id: check
+        run: |
+          set +e
+          {
+            echo "### Latest release"
+            scripts/fork/sync-upstream.sh check
+            a=$?
+            echo
+            echo "### Upstream main"
+            scripts/fork/sync-upstream.sh check upstream/main
+            b=$?
+          } 2>&1 | tee report.txt
+          [ "$a" = 0 ] && [ "$b" = 0 ] || echo "conflict=true" >> "$GITHUB_OUTPUT"
+        shell: bash
+      - name: Report conflicts
+        if: steps.check.outputs.conflict == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Upstream merge conflicts"
+          body="$(printf 'The fork no longer merges cleanly with upstream.\n\nFollow docs/fork/UPGRADE-GUIDE.md.\n\n```\n%s\n```\n' "$(cat report.txt)")"
+          number=$(gh issue list --search "in:title $title" --state open --json number -q '.[0].number')
+          if [ -n "$number" ]; then gh issue comment "$number" --body "$body"; else gh issue create --title "$title" --body "$body"; fi

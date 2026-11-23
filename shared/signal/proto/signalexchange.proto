@@ -75,7 +75,7 @@ message Body {
   // fallback dial target when DNS resolution of relayServerAddress fails.
   // SNI/TLS verification still uses relayServerAddress.
   optional bytes relayServerIP = 11;
-  RelayPolicyAttempt relayPolicyAttempt = 12;
+  RelayPolicyAttempt relayPolicyAttempt = 1001;
 }
 
 // Mode indicates a connection mode

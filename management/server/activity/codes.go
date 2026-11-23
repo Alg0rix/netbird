@@ -292,9 +292,9 @@ const (
 	// AccountPeerHostnameCollisionRejectionDisabled indicates that a user disabled rejecting peer hostname collisions for the account
 	AccountPeerHostnameCollisionRejectionDisabled Activity = 145
 	// RelayConfigurationUpdated indicates a committed relay configuration mutation.
-	RelayConfigurationUpdated Activity = 149
+	RelayConfigurationUpdated Activity = 9001
 	// RelayPreferredRetryRequested indicates an explicit, targeted relay retry.
-	RelayPreferredRetryRequested Activity = 150
+	RelayPreferredRetryRequested Activity = 9002
 
 	// The MCP session events' client_name meta is chosen by the client, and their access meta is
 	// what the user approved at consent, still limited by the user's role.

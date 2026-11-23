@@ -404,7 +404,7 @@ message PeerState {
   string relayAddress = 18;
   bytes sshHostKey = 19;
   string ipv6 = 20;
-  RelayPolicyStatus relayPolicy = 21;
+  RelayPolicyStatus relayPolicy = 1001;
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -487,7 +487,7 @@ message FullStatus {
   // on it to know when to re-fetch ListNetworks via the push stream, instead
   // of polling on every status snapshot.
   uint64 networksRevision = 11;
-  repeated RelayPolicyStatus relayPolicyStatuses = 12;
+  repeated RelayPolicyStatus relayPolicyStatuses = 1001;
 }
 
 // Networks

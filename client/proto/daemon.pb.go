@@ -1507,7 +1507,7 @@ type PeerState struct {
 	RelayAddress               string                 `protobuf:"bytes,18,opt,name=relayAddress,proto3" json:"relayAddress,omitempty"`
 	SshHostKey                 []byte                 `protobuf:"bytes,19,opt,name=sshHostKey,proto3" json:"sshHostKey,omitempty"`
 	Ipv6                       string                 `protobuf:"bytes,20,opt,name=ipv6,proto3" json:"ipv6,omitempty"`
-	RelayPolicy                *RelayPolicyStatus     `protobuf:"bytes,21,opt,name=relayPolicy,proto3" json:"relayPolicy,omitempty"`
+	RelayPolicy                *RelayPolicyStatus     `protobuf:"bytes,1001,opt,name=relayPolicy,proto3" json:"relayPolicy,omitempty"`
 	unknownFields              protoimpl.UnknownFields
 	sizeCache                  protoimpl.SizeCache
 }
@@ -2203,7 +2203,7 @@ type FullStatus struct {
 	// on it to know when to re-fetch ListNetworks via the push stream, instead
 	// of polling on every status snapshot.
 	NetworksRevision    uint64               `protobuf:"varint,11,opt,name=networksRevision,proto3" json:"networksRevision,omitempty"`
-	RelayPolicyStatuses []*RelayPolicyStatus `protobuf:"bytes,12,rep,name=relayPolicyStatuses,proto3" json:"relayPolicyStatuses,omitempty"`
+	RelayPolicyStatuses []*RelayPolicyStatus `protobuf:"bytes,1001,rep,name=relayPolicyStatuses,proto3" json:"relayPolicyStatuses,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -7507,7 +7507,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\x0esshJWTCacheTTL\x18\x1a \x01(\x05R\x0esshJWTCacheTTL\x12!\n" +
 	"\fdisable_ipv6\x18\x1b \x01(\bR\vdisableIpv6\x12,\n" +
 	"\x11remoteJobsAllowed\x18\x1d \x01(\bR\x11remoteJobsAllowed\x12*\n" +
-	"\x10mDMManagedFields\x18\x1c \x03(\tR\x10mDMManagedFields\"\xcf\x06\n" +
+	"\x10mDMManagedFields\x18\x1c \x03(\tR\x10mDMManagedFields\"\xd0\x06\n" +
 	"\tPeerState\x12\x0e\n" +
 	"\x02IP\x18\x01 \x01(\tR\x02IP\x12\x16\n" +
 	"\x06pubKey\x18\x02 \x01(\tR\x06pubKey\x12\x1e\n" +
@@ -7532,8 +7532,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\n" +
 	"sshHostKey\x18\x13 \x01(\fR\n" +
 	"sshHostKey\x12\x12\n" +
-	"\x04ipv6\x18\x14 \x01(\tR\x04ipv6\x12;\n" +
-	"\vrelayPolicy\x18\x15 \x01(\v2\x19.daemon.RelayPolicyStatusR\vrelayPolicy\"\x9c\x02\n" +
+	"\x04ipv6\x18\x14 \x01(\tR\x04ipv6\x12<\n" +
+	"\vrelayPolicy\x18\xe9\a \x01(\v2\x19.daemon.RelayPolicyStatusR\vrelayPolicy\"\x9c\x02\n" +
 	"\x0eLocalPeerState\x12\x0e\n" +
 	"\x02IP\x18\x01 \x01(\tR\x02IP\x12\x16\n" +
 	"\x06pubKey\x18\x02 \x01(\tR\x06pubKey\x12(\n" +
@@ -7571,7 +7571,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\fportForwards\x18\x05 \x03(\tR\fportForwards\"^\n" +
 	"\x0eSSHServerState\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x122\n" +
-	"\bsessions\x18\x02 \x03(\v2\x16.daemon.SSHSessionInfoR\bsessions\"\xac\x05\n" +
+	"\bsessions\x18\x02 \x03(\v2\x16.daemon.SSHSessionInfoR\bsessions\"\xad\x05\n" +
 	"\n" +
 	"FullStatus\x12A\n" +
 	"\x0fmanagementState\x18\x01 \x01(\v2\x17.daemon.ManagementStateR\x0fmanagementState\x125\n" +
@@ -7586,8 +7586,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x15lazyConnectionEnabled\x18\t \x01(\bR\x15lazyConnectionEnabled\x12>\n" +
 	"\x0esshServerState\x18\n" +
 	" \x01(\v2\x16.daemon.SSHServerStateR\x0esshServerState\x12*\n" +
-	"\x10networksRevision\x18\v \x01(\x04R\x10networksRevision\x12K\n" +
-	"\x13relayPolicyStatuses\x18\f \x03(\v2\x19.daemon.RelayPolicyStatusR\x13relayPolicyStatuses\"\x15\n" +
+	"\x10networksRevision\x18\v \x01(\x04R\x10networksRevision\x12L\n" +
+	"\x13relayPolicyStatuses\x18\xe9\a \x03(\v2\x19.daemon.RelayPolicyStatusR\x13relayPolicyStatuses\"\x15\n" +
 	"\x13ListNetworksRequest\"?\n" +
 	"\x14ListNetworksResponse\x12'\n" +
 	"\x06routes\x18\x01 \x03(\v2\x0f.daemon.NetworkR\x06routes\"a\n" +

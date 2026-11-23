@@ -170,7 +170,7 @@ message SyncResponse {
   int32 Version = 9;
 
   // Current server-issued Sync session fencing token, present on the initial snapshot.
-  int64 relayReportSession = 10;
+  int64 relayReportSession = 1001;
 }
 
 enum RelayPathTransport {
@@ -294,7 +294,7 @@ enum PeerCapability {
   // Client receives NetworkMap as components and assembles it locally.
   PeerCapabilityComponentNetworkMap = 3;
   // Client enforces versioned home and symmetric pair relay policies.
-  PeerCapabilityRelayPolicy = 4;
+  PeerCapabilityRelayPolicy = 1001;
 }
 
 // PeerSystemMeta is machine meta data like OS and version.
@@ -474,7 +474,7 @@ message PeerConfig {
   // IPv6 overlay address as compact bytes: 16 bytes IP + 1 byte prefix length.
   bytes address_v6 = 9;
 
-  RelayPolicy home_relay_policy = 10;
+  RelayPolicy home_relay_policy = 1001;
 }
 
 // RelayPolicy presence distinguishes legacy selection from an exhausted restriction.
@@ -609,7 +609,7 @@ message RemotePeerConfig {
   // connection. A local NB_LAZY_CONN/MDM override still wins over this.
   LazyState lazyState = 6;
 
-  RelayPolicy relay_policy = 7;
+  RelayPolicy relay_policy = 1001;
 }
 
 // LazyState is the management per-peer override for lazy connections.
@@ -1043,9 +1043,9 @@ message NetworkMapComponentsFull {
   // etc.) without forcing a renumber.
   reserved 26 to 50;
 
-  RelayPolicy home_relay_policy = 51;
+  RelayPolicy home_relay_policy = 1001;
   // Keys are canonical peer public keys, matching the decoder's peer IDs.
-  map<string, RelayPolicy> pair_relay_policies = 52;
+  map<string, RelayPolicy> pair_relay_policies = 1002;
 }
 
 // ProxyPatch is unused; the ingress port-forwarding feature was discontinued.
@@ -1163,7 +1163,7 @@ message PeerCompact {
   // feeds the per-peer lazyState emitted in RemotePeerConfig.
   bool proxy_embedded = 14;
 
-  bool supports_relay_policy = 16;
+  bool supports_relay_policy = 1001;
 
   // Mirror of types.Peer.Status.LoginExpired. A flagged peer is expired
   // regardless of last_login_unix_nano and the account's expiration settings,

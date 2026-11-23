@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Finish an upstream merge: regenerate, build, test. Run after conflicts are resolved.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+if git ls-files -u | grep -q .; then echo "unresolved conflicts remain"; exit 1; fi
+if git diff --cached --name-only | xargs -r grep -lE '^(<<<<<<<|>>>>>>>)' 2>/dev/null | grep -q .; then
+  echo "conflict markers remain"; exit 1
+fi
+
+scripts/fork/regen.sh
+# fork_numbers_test.go also guards the reserved number ranges
+pkgs=$(go list -e ./... 2>/dev/null | grep -vE '/client/ui|magefiles|relay/test')
+go build $pkgs
+go test -count=1 -run XXX_NONE $pkgs >/dev/null   # every test package must compile
+go test -count=1 \
+  ./shared/relay/... ./relay/... \
+  ./shared/management/networkmap/... ./shared/management/relaypolicy/... \
+  ./management/server/relaypolicy/... ./management/server/http/handlers/relay_policies/... \
+  ./management/internals/shared/grpc/... ./management/internals/modules/mcpapi/... \
+  ./client/internal/peer/... ./client/internal/
+scripts/fork/surface.sh >/dev/null
+echo "OK. Review 'git diff --cached --stat', then: git commit"

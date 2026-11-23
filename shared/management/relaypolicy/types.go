@@ -3,7 +3,7 @@ package relaypolicy
 import "slices"
 
 // Capability is the append-only Management peer capability for relay policy enforcement.
-const Capability int32 = 4
+const Capability int32 = 1001
 
 type (
 	// AccountID identifies an account at the relay-policy boundary.
