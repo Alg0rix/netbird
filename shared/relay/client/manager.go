@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"crypto/ed25519"
 	"fmt"
 	"net/netip"
 	"sync"
@@ -63,6 +64,11 @@ func WithMaxBackoffInterval(d time.Duration) ManagerOption {
 	return func(m *Manager) { m.maxBackoffInterval = d }
 }
 
+// WithAuthKey sets the key that signs the proof presented with the auth token.
+func WithAuthKey(key ed25519.PrivateKey) ManagerOption {
+	return func(m *Manager) { m.authKey = key }
+}
+
 // WithNetEvents injects the OS network event handling.
 func WithNetEvents(events NetEvents) ManagerOption {
 	return func(m *Manager) { m.netEvents = events }
@@ -106,6 +112,7 @@ type Manager struct {
 	mtu                uint16
 	maxBackoffInterval time.Duration
 	netEvents          NetEvents
+	authKey            ed25519.PrivateKey
 
 	cleanupInterval      time.Duration
 	keepUnusedServerTime time.Duration
@@ -146,6 +153,7 @@ func NewManager(ctx context.Context, serverURLs []string, peerID string, mtu uin
 		opt(m)
 	}
 	m.serverPicker.NetEvents = m.netEvents
+	m.serverPicker.AuthKey = m.authKey
 	m.serverPicker.ServerURLs.Store(append([]string(nil), serverURLs...))
 	m.serverPicker.acquire = m.acquirePickerClient
 	m.serverPicker.release = m.releasePickerClient
@@ -289,6 +297,11 @@ func (m *Manager) UpdateServerURLs(serverURLs []string) {
 	m.serverPicker.ServerURLs.Store(append([]string(nil), serverURLs...))
 }
 
+// UpdateAuthToken replaces the token in the token store with the auth token.
+func (m *Manager) UpdateAuthToken(token []byte) error {
+	return m.tokenStore.UpdateAuthToken(token)
+}
+
 // UpdateToken updates the token in the token store.
 func (m *Manager) UpdateToken(token *relayAuth.Token) error {
 	return m.tokenStore.UpdateToken(token)
@@ -397,9 +410,9 @@ func (m *Manager) cleanUpUnusedRelays() {
 }
 
 func relayConnState(c *Client) RelayConnState {
-	addr, err := c.ServerInstanceURL()
-	if err != nil {
-		return RelayConnState{URL: c.connectionURL, Err: err}
+	s := c.CurrentSession()
+	if s == nil {
+		return RelayConnState{URL: c.connectionURL, Err: fmt.Errorf("relay connection is not established")}
 	}
-	return RelayConnState{URL: addr, Transport: c.Transport()}
+	return RelayConnState{URL: s.instanceURL.String(), Transport: s.transport}
 }

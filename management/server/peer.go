@@ -838,6 +838,7 @@ func (am *DefaultAccountManager) AddPeer(ctx context.Context, accountID, setupKe
 		Status:                      &nbpeer.PeerStatus{Connected: false, LastSeen: registrationTime},
 		SSHEnabled:                  false,
 		SSHKey:                      peer.SSHKey,
+		AuthPubKey:                  peer.AuthPubKey,
 		LastLogin:                   &registrationTime,
 		CreatedAt:                   registrationTime,
 		LoginExpirationEnabled:      addedByUser && !temporary,
@@ -1279,6 +1280,7 @@ func (am *DefaultAccountManager) handlePeerLoginNotFound(ctx context.Context, lo
 			Key:            login.WireGuardPubKey,
 			Meta:           login.Meta,
 			SSHKey:         login.SSHKey,
+			AuthPubKey:     login.AuthPubKey,
 			Location:       nbpeer.Location{ConnectionIP: login.ConnectionIP},
 			ExtraDNSLabels: login.ExtraDNSLabels,
 		}
@@ -1314,8 +1316,9 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 	}
 
 	var peer *nbpeer.Peer
-	var shouldStorePeer, shouldUpdatePeers bool
+	var shouldUpdatePeers bool
 	var peerGroupIDs []string
+	var prevAuthPubKey string
 
 	peer, err = am.Store.GetPeerByPeerPubKey(ctx, store.LockingStrengthNone, login.WireGuardPubKey)
 	if err != nil {
@@ -1327,45 +1330,13 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 
 	if peerLoginChangesPeer(ctx, peer, login, settings) {
 		err = am.Store.ExecuteInTransaction(ctx, func(transaction store.Store) error {
-			peer, err = transaction.GetPeerByPeerPubKey(ctx, store.LockingStrengthUpdate, login.WireGuardPubKey)
-			if err != nil {
-				return err
-			}
-			if err = am.checkPeerLogin(ctx, transaction, peer, login); err != nil {
-				return err
-			}
-
-			if login.UserID != "" {
-				changed, err := am.handleUserPeer(ctx, transaction, peer, settings)
-				if err != nil {
-					return err
-				}
-
-				if changed {
-					shouldStorePeer = true
-					shouldUpdatePeers = true
-				}
-			}
-
-			if peer.SSHKey != login.SSHKey {
-				peer.SSHKey = login.SSHKey
-				shouldStorePeer = true
-			}
-
-			if shouldStorePeer {
-				if err = transaction.SavePeer(ctx, accountID, peer); err != nil {
-					return err
-				}
-				if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
-					return fmt.Errorf("increment network serial: %w", err)
-				}
-			}
-
-			return nil
+			peer, shouldUpdatePeers, prevAuthPubKey, err = am.applyPeerLoginChanges(ctx, transaction, accountID, login, settings)
+			return err
 		})
 		if err != nil {
 			return nil, nil, nil, false, err
 		}
+		logAuthPubKeyChange(ctx, peer.ID, prevAuthPubKey, peer.AuthPubKey)
 	}
 
 	// This is needed to keep in memory for the peer config. Otherwise browser client will end in a retry loop
@@ -1397,6 +1368,56 @@ func (am *DefaultAccountManager) LoginPeer(ctx context.Context, login types.Peer
 	return peer, network, postureChecks, enableSSH, nil
 }
 
+// applyPeerLoginChanges re-reads the peer under lock and saves what the login changes on it. It
+// returns the peer, whether other peers must be told about the change, and the auth key the peer
+// had before the login.
+func (am *DefaultAccountManager) applyPeerLoginChanges(ctx context.Context, transaction store.Store, accountID string, login types.PeerLogin, settings *types.Settings) (*nbpeer.Peer, bool, string, error) {
+	peer, err := transaction.GetPeerByPeerPubKey(ctx, store.LockingStrengthUpdate, login.WireGuardPubKey)
+	if err != nil {
+		return nil, false, "", err
+	}
+	if err = am.checkPeerLogin(ctx, transaction, peer, login); err != nil {
+		return nil, false, "", err
+	}
+
+	var shouldStorePeer, shouldUpdatePeers bool
+	if login.UserID != "" {
+		changed, err := am.handleUserPeer(ctx, transaction, peer, settings)
+		if err != nil {
+			return nil, false, "", err
+		}
+
+		if changed {
+			shouldStorePeer = true
+			shouldUpdatePeers = true
+		}
+	}
+
+	if peer.SSHKey != login.SSHKey {
+		peer.SSHKey = login.SSHKey
+		shouldStorePeer = true
+	}
+
+	prevAuthPubKey := peer.AuthPubKey
+	authKeyChanged := peer.AuthPubKey != login.AuthPubKey
+	peer.AuthPubKey = login.AuthPubKey
+	if !shouldStorePeer && !authKeyChanged {
+		return peer, shouldUpdatePeers, prevAuthPubKey, nil
+	}
+
+	if err = transaction.SavePeer(ctx, accountID, peer); err != nil {
+		return nil, false, "", err
+	}
+	// The auth key is in no other peer's network map, so it alone does not bump the serial.
+	if shouldStorePeer {
+		if err = transaction.IncrementNetworkSerial(ctx, accountID); err != nil {
+			return nil, false, "", fmt.Errorf("increment network serial: %w", err)
+		}
+	}
+
+	return peer, shouldUpdatePeers, prevAuthPubKey, nil
+}
+
 // checkPeerLogin rejects a login whose user does not own the peer, whose owner is
 // blocked, or that requests extra DNS labels the peer is not allowed to use.
 func (am *DefaultAccountManager) checkPeerLogin(ctx context.Context, st store.Store, peer *nbpeer.Peer, login types.PeerLogin) error {
@@ -1422,10 +1443,24 @@ func (am *DefaultAccountManager) checkPeerLogin(ctx context.Context, st store.St
 	return nil
 }
 
+// logAuthPubKeyChange logs a replaced or dropped peer auth key at info: it changes which proofs
+// Signal and Relay accept from the peer, and a peer normally keeps its key.
+func logAuthPubKeyChange(ctx context.Context, peerID, prev, next string) {
+	switch {
+	case prev == next:
+	case prev == "":
+		log.WithContext(ctx).Debugf("peer %s registered a peer auth key", peerID)
+	case next == "":
+		log.WithContext(ctx).Infof("peer %s logged in without its peer auth key, it gets legacy tokens", peerID)
+	default:
+		log.WithContext(ctx).Infof("peer %s replaced its peer auth key", peerID)
+	}
+}
+
 // peerLoginChangesPeer reports whether logging in writes the peer: an SSO
-// re-login of an expired peer or a new SSH key.
+// re-login of an expired peer, a new SSH key or a new auth key.
 func peerLoginChangesPeer(ctx context.Context, peer *nbpeer.Peer, login types.PeerLogin, settings *types.Settings) bool {
-	if peer.SSHKey != login.SSHKey {
+	if peer.SSHKey != login.SSHKey || peer.AuthPubKey != login.AuthPubKey {
 		return true
 	}
 	return login.UserID != "" && peerLoginExpired(ctx, peer, settings)
@@ -1719,14 +1754,14 @@ func (am *DefaultAccountManager) UpdateAccountPeers(ctx context.Context, account
 // before the dispatch goroutine starts, so the snapshot is released on return.
 // Exported so the networks sub-package managers (which hold only account.Manager)
 // share it.
-func (am *DefaultAccountManager) ExpandAndUpdateAffected(ctx context.Context, accountID string, snap *affectedpeers.Snapshot, change affectedpeers.Change) {
-	go am.dispatchAffectedPeerIDs(ctx, accountID, snap.Expand(ctx, accountID, change))
+func (am *DefaultAccountManager) ExpandAndUpdateAffected(ctx context.Context, accountID string, snap *affectedpeers.Snapshot, change affectedpeers.Change, reason types.UpdateReason) {
+	go am.dispatchAffectedPeerIDs(ctx, accountID, snap.Expand(ctx, accountID, change), reason)
 }
 
 // dispatchAffectedPeerIDs dispatches a single network-map refresh for already
 // expanded affected peer IDs. It may run in a goroutine that outlives the
 // request, so it detaches from the request context's cancellation up front.
-func (am *DefaultAccountManager) dispatchAffectedPeerIDs(ctx context.Context, accountID string, affectedPeerIDs []string) {
+func (am *DefaultAccountManager) dispatchAffectedPeerIDs(ctx context.Context, accountID string, affectedPeerIDs []string, reason types.UpdateReason) {
 	ctx = context.WithoutCancel(ctx)
 
 	if len(affectedPeerIDs) == 0 {
@@ -1735,7 +1770,7 @@ func (am *DefaultAccountManager) dispatchAffectedPeerIDs(ctx context.Context, ac
 	}
 
 	log.WithContext(ctx).Debugf("updating %d affected peers for account %s: %v", len(affectedPeerIDs), accountID, affectedPeerIDs)
-	_ = am.networkMapController.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs)
+	_ = am.networkMapController.UpdateAffectedPeers(ctx, accountID, affectedPeerIDs, reason)
 }
 
 // affectedPeerSet collects the affected peer IDs of several snapshot expansions,
@@ -1805,11 +1840,23 @@ func (am *DefaultAccountManager) UpdateAccountPeer(ctx context.Context, accountI
 }
 
 // getNextPeerExpiration returns the minimum duration in which the next peer of the account will expire if it was found.
-// If there is no peer that expires this function returns false and a duration of 0.
+// If login expiration is disabled for the account or no peer expires, this function returns false and a duration of 0.
 // This function only considers peers that haven't been expired yet. Offline peers count too:
 // a running job is never re-armed on connect, so a peer that reconnects with an old login
 // must already be part of the scheduled run.
 func (am *DefaultAccountManager) getNextPeerExpiration(ctx context.Context, accountID string) (time.Duration, bool) {
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	if isNotFound(err) {
+		return 0, false
+	}
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get account settings: %v", err)
+		return peerSchedulerRetryInterval, true
+	}
+	if !settings.PeerLoginExpirationEnabled {
+		return 0, false
+	}
+
 	peersWithExpiry, err := am.Store.GetAccountPeersWithExpiration(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get peers with expiration: %v", err)
@@ -1818,15 +1865,6 @@ func (am *DefaultAccountManager) getNextPeerExpiration(ctx context.Context, acco
 
 	if len(peersWithExpiry) == 0 {
 		return 0, false
-	}
-
-	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
-	if isNotFound(err) {
-		return 0, false
-	}
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get account settings: %v", err)
-		return peerSchedulerRetryInterval, true
 	}
 
 	var nextExpiry *time.Duration
@@ -1853,9 +1891,21 @@ func (am *DefaultAccountManager) getNextPeerExpiration(ctx context.Context, acco
 }
 
 // GetNextInactivePeerExpiration returns the minimum duration in which the next peer of the account will expire if it was found.
-// If there is no peer that expires this function returns false and a duration of 0.
+// If inactivity expiration is disabled for the account or no peer expires, this function returns false and a duration of 0.
 // This function only considers peers that haven't been expired yet and that are not connected.
 func (am *DefaultAccountManager) getNextInactivePeerExpiration(ctx context.Context, accountID string) (time.Duration, bool) {
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	if isNotFound(err) {
+		return 0, false
+	}
+	if err != nil {
+		log.WithContext(ctx).Errorf("failed to get account settings: %v", err)
+		return peerSchedulerRetryInterval, true
+	}
+	if !settings.PeerInactivityExpirationEnabled {
+		return 0, false
+	}
+
 	peersWithInactivity, err := am.Store.GetAccountPeersWithInactivity(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		log.WithContext(ctx).Errorf("failed to get peers with inactivity: %v", err)
@@ -1864,15 +1914,6 @@ func (am *DefaultAccountManager) getNextInactivePeerExpiration(ctx context.Conte
 
 	if len(peersWithInactivity) == 0 {
 		return 0, false
-	}
-
-	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
-	if isNotFound(err) {
-		return 0, false
-	}
-	if err != nil {
-		log.WithContext(ctx).Errorf("failed to get account settings: %v", err)
-		return peerSchedulerRetryInterval, true
 	}
 
 	var nextExpiry *time.Duration
@@ -1900,12 +1941,15 @@ func (am *DefaultAccountManager) getNextInactivePeerExpiration(ctx context.Conte
 
 // getExpiredPeers returns peers that have been expired.
 func (am *DefaultAccountManager) getExpiredPeers(ctx context.Context, accountID string) ([]*nbpeer.Peer, error) {
-	peersWithExpiry, err := am.Store.GetAccountPeersWithExpiration(ctx, store.LockingStrengthNone, accountID)
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, err
 	}
+	if !settings.PeerLoginExpirationEnabled {
+		return nil, nil
+	}
 
-	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	peersWithExpiry, err := am.Store.GetAccountPeersWithExpiration(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -1927,12 +1971,15 @@ func (am *DefaultAccountManager) getExpiredPeers(ctx context.Context, accountID 
 
 // getInactivePeers returns peers that have been expired by inactivity
 func (am *DefaultAccountManager) getInactivePeers(ctx context.Context, accountID string) ([]*nbpeer.Peer, error) {
-	peersWithInactivity, err := am.Store.GetAccountPeersWithInactivity(ctx, store.LockingStrengthNone, accountID)
+	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, err
 	}
+	if !settings.PeerInactivityExpirationEnabled {
+		return nil, nil
+	}
 
-	settings, err := am.Store.GetAccountSettings(ctx, store.LockingStrengthNone, accountID)
+	peersWithInactivity, err := am.Store.GetAccountPeersWithInactivity(ctx, store.LockingStrengthNone, accountID)
 	if err != nil {
 		return nil, err
 	}

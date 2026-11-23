@@ -199,6 +199,7 @@ func (m *Manager) acquire(ctx context.Context, address string, ip netip.Addr, en
 			c := NewClientWithServerIP(address, ip, m.tokenStore, m.peerID, m.mtu)
 			c.SetTransportFallback(m.transportFallback)
 			c.netEvents = m.netEvents
+			c.authKey = m.authKey
 			dialCtx, cancel := context.WithTimeout(m.ctx, defaultConnectionTimeout)
 			rt.Lock()
 			rt.dialCancel = cancel

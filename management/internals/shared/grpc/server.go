@@ -353,7 +353,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		return mapError(ctx, err)
 	}
 
-	s.secretsManager.SetupRefresh(ctx, accountID, peer.ID)
+	s.secretsManager.SetupRefresh(ctx, accountID, peer.ID, peerAuthKeys(peer))
 
 	unlock()
 	unlock = nil
@@ -627,6 +627,7 @@ func extractPeerMeta(ctx context.Context, meta *proto.PeerSystemMeta) nbpeer.Pee
 		SystemSerialNumber: cleanClientString(meta.GetSysSerialNumber()),
 		SystemProductName:  cleanClientString(meta.GetSysProductName()),
 		SystemManufacturer: cleanClientString(meta.GetSysManufacturer()),
+		SystemHardwareUUID: cleanClientString(meta.GetSysHardwareUUID()),
 		Environment: nbpeer.Environment{
 			Cloud:    cleanClientString(meta.GetEnvironment().GetCloud()),
 			Platform: cleanClientString(meta.GetEnvironment().GetPlatform()),
@@ -760,6 +761,7 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 	peer, network, postureChecks, enableSSH, err := s.accountManager.LoginPeer(ctx, types.PeerLogin{
 		WireGuardPubKey: peerKey.String(),
 		SSHKey:          cleanClientString(string(sshKey)),
+		AuthPubKey:      loginAuthPubKey(loginReq),
 		Meta:            peerMeta,
 		UserID:          userID,
 		SetupKey:        loginReq.GetSetupKey(),
@@ -882,14 +884,8 @@ func (s *Server) ExtendAuthSession(ctx context.Context, req *proto.EncryptedMess
 }
 
 func (s *Server) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer, network *types.Network, postureChecks []*nmdata.PostureChecks, enableSSH bool, settings *types.Settings) (*proto.LoginResponse, error) {
-	var relayToken *Token
 	var err error
-	if s.config.Relay != nil && len(s.config.Relay.Addresses) > 0 {
-		relayToken, err = s.secretsManager.GenerateRelayToken()
-		if err != nil {
-			log.Errorf("failed generating Relay token: %v", err)
-		}
-	}
+	relayToken, authToken := s.relayCredentials(ctx, peer)
 
 	if settings == nil {
 		settings, err = s.settingsManager.GetSettings(ctx, peer.AccountID, activity.SystemInitiator)
@@ -905,6 +901,7 @@ func (s *Server) prepareLoginResponse(ctx context.Context, peer *nbpeer.Peer, ne
 		PeerConfig:    toPeerConfig(types.TwinPeer(peer), types.TwinNetwork(network), s.networkMapController.GetDNSDomain(settings), types.TwinAccountSettings(settings), s.config.HttpConfig, s.config.DeviceAuthorizationFlow, enableSSH, false),
 		Checks:        toProtocolChecks(ctx, postureChecks),
 	}
+	setAuthToken(loginResp.NetbirdConfig, authToken)
 
 	// settings is always non-nil here, so we never emit nil — encoder returns
 	// either a valid deadline or the explicit-zero "disabled" sentinel.
@@ -982,13 +979,7 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 		}
 	}
 
-	var relayToken *Token
-	if s.config.Relay != nil && len(s.config.Relay.Addresses) > 0 {
-		relayToken, err = s.secretsManager.GenerateRelayToken()
-		if err != nil {
-			log.Errorf("failed generating Relay token: %v", err)
-		}
-	}
+	relayToken, authToken := s.relayCredentials(ctx, peer)
 
 	peerGroups, err := s.accountManager.GetStore().GetPeerGroupIDs(ctx, store.LockingStrengthNone, peer.AccountID, peer.ID)
 	if err != nil {
@@ -1034,6 +1025,7 @@ func (s *Server) sendInitialSync(ctx context.Context, peerKey wgtypes.Key, peer 
 	}
 
 	plainResp.RelayReportSession = reportSession
+	setAuthToken(plainResp.NetbirdConfig, authToken)
 
 	key, err := s.secretsManager.GetWGKey()
 	if err != nil {

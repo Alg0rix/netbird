@@ -1155,6 +1155,9 @@ func (e *Engine) updateNetbirdConfig(wCfg *mgmProto.NetbirdConfig) error {
 		return nil
 	}
 
+	// Before the steps that can fail, so a bad TURN or flow entry does not keep a stale token.
+	e.signal.UpdateAuthToken(wCfg.GetAuthToken())
+
 	if err := e.updateTURNs(wCfg.GetTurns()); err != nil {
 		return fmt.Errorf("update TURNs: %w", err)
 	}
@@ -1168,7 +1171,7 @@ func (e *Engine) updateNetbirdConfig(wCfg *mgmProto.NetbirdConfig) error {
 	stunTurn = append(stunTurn, e.TURNs...)
 	e.stunTurn.Store(stunTurn)
 
-	if err := e.handleRelayUpdate(wCfg.GetRelay()); err != nil {
+	if err := e.handleRelayUpdate(wCfg.GetRelay(), wCfg.GetAuthToken()); err != nil {
 		return err
 	}
 
@@ -1207,15 +1210,21 @@ func (e *Engine) persistSyncResponse(update *mgmProto.SyncResponse) {
 	log.Debugf("sync response persisted with serial %d", update.GetNetworkMap().GetSerial())
 }
 
-func (e *Engine) handleRelayUpdate(update *mgmProto.RelayConfig) error {
+func (e *Engine) handleRelayUpdate(update *mgmProto.RelayConfig, authToken []byte) error {
 	if update != nil {
 		// when we receive token we expect valid address list too
-		c := &auth.Token{
-			Payload:   update.GetTokenPayload(),
-			Signature: update.GetTokenSignature(),
-		}
-		if err := e.relayManager.UpdateToken(c); err != nil {
-			return fmt.Errorf("update relay token: %w", err)
+		if len(authToken) > 0 {
+			if err := e.relayManager.UpdateAuthToken(authToken); err != nil {
+				return fmt.Errorf("update relay auth token: %w", err)
+			}
+		} else {
+			c := &auth.Token{
+				Payload:   update.GetTokenPayload(),
+				Signature: update.GetTokenSignature(),
+			}
+			if err := e.relayManager.UpdateToken(c); err != nil {
+				return fmt.Errorf("update relay token: %w", err)
+			}
 		}
 
 		urls := update.Urls
@@ -1225,7 +1234,7 @@ func (e *Engine) handleRelayUpdate(update *mgmProto.RelayConfig) error {
 		}
 		e.relayManager.UpdateServerURLs(urls)
 
-		// Just in case the agent started with an MGM server where the relay was disabled but was later enabled.
+		// Just in case the client started with an MGM server where the relay was disabled but was later enabled.
 		// We can ignore all errors because the guard will manage the reconnection retries.
 		_ = e.relayManager.Serve()
 	} else {
@@ -2525,20 +2534,30 @@ func (e *Engine) startNetworkMonitor() {
 	}
 
 	e.networkMonitor = networkmonitor.New()
+	var watch recoveryWatch
+	loop := underlayLoop{
+		listen: e.networkMonitor.Listen,
+		decide: func(change networkmonitor.Change) underlayAction {
+			return decideUnderlayAction(change, e.netMgr != nil)
+		},
+		redial:  e.redialOnUnderlayChange,
+		restart: e.triggerClientRestart,
+		armWatch: func() {
+			watchCtx := watch.replace(e.ctx)
+			e.shutdownWg.Add(1)
+			go e.watchControlPlaneRecovery(watchCtx, controlPlaneReadiness(e.statusRecorder, e.signal, e.relayManager))
+			if relay := e.relayManager; relay != nil && relay.HasRelayAddress() {
+				e.shutdownWg.Add(1)
+				go e.moveMarkedPeersWhenRelayBack(watchCtx, relay.Ready)
+			}
+		},
+		stopWatch:    watch.stop,
+		availability: networkAvailability{mgr: e.netMgr},
+	}
 	e.shutdownWg.Add(1)
 	go func() {
 		defer e.shutdownWg.Done()
-		if err := e.networkMonitor.Listen(e.ctx); err != nil {
-			if errors.Is(err, context.Canceled) {
-				log.Infof("network monitor stopped")
-				return
-			}
-			log.Errorf("network monitor error: %v", err)
-			return
-		}
-
-		log.Infof("Network monitor: detected network change, triggering client restart")
-		e.triggerClientRestart()
+		loop.run(e.ctx)
 	}()
 }
 
